@@ -7,7 +7,7 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from sqlalchemy import select
 
-from bot.services.api import get_mentor_by_email, register_telegram_id
+from bot.services.api import get_mentor_by_email, register_telegram_id, ApiError
 from bot.services.database import Mentor, get_session
 
 logger = logging.getLogger(__name__)
@@ -30,23 +30,18 @@ async def process_email(message: types.Message, state: FSMContext, config):
         await message.answer("Некорректный формат email. Пожалуйста, введите правильный email.")
         return  # Сохраняем текущее состояние
 
-    # Проверка существования ментора через API
-    mentor = await get_mentor_by_email(config.api_url, email)
-
-    if not mentor:
-        await message.answer("Email не найден в базе менторов онлайн школы Strong Manager. Пожалуйста, проверьте правильность ввода или обратитесь к администратору.")
-        return  # Сохраняем текущее состояние
-
     try:
-        # Регистрация Telegram ID в Google Sheets
-        await register_telegram_id(
+        # Регистрация Telegram ID в Google Sheets напрямую
+        # Если ментор с таким email не существует, API вернет ошибку
+        registration_result = await register_telegram_id(
             config.api_url,
             email,
             message.from_user.id,
             message.from_user.username
         )
 
-        # Сохранение информации о менторе в локальной БД
+        # Если мы дошли сюда, значит регистрация в API успешна
+        # Сохраняем информацию о менторе в локальной БД
         async for session in get_session():
             # Проверка, существует ли уже такой ментор
             existing_mentor = await session.execute(
@@ -86,10 +81,19 @@ async def process_email(message: types.Message, state: FSMContext, config):
 
         logger.info(f"Ментор {message.from_user.id} ({email}) успешно зарегистрирован")
 
+    except ApiError as e:
+        error_message = str(e)
+        if "Mentor with this email not found" in error_message:
+            await message.answer("Email не найден в базе менторов онлайн школы Strong Manager. Пожалуйста, проверьте правильность ввода или обратитесь к администратору.")
+        else:
+            logger.error(f"Ошибка API при регистрации ментора {message.from_user.id} ({email}): {e}")
+            await message.answer("Произошла ошибка при регистрации. Пожалуйста, попробуйте позже или обратитесь к администратору.")
+            await state.finish()  # Сбрасываем состояние при критической ошибке
+
     except Exception as e:
         logger.error(f"Ошибка при регистрации ментора {message.from_user.id} ({email}): {e}")
         await message.answer("Произошла ошибка при регистрации. Пожалуйста, попробуйте позже или обратитесь к администратору.")
-        await state.finish()
+        await state.finish()  # Сбрасываем состояние при критической ошибке
 
 # Проверка авторизации пользователя
 async def check_auth(telegram_id):
