@@ -1,0 +1,121 @@
+import logging
+import re
+from datetime import datetime
+
+from aiogram import Dispatcher, types
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from sqlalchemy import select
+
+from bot.services.api import get_mentor_by_email, register_telegram_id
+from bot.services.database import Mentor, get_session
+
+logger = logging.getLogger(__name__)
+
+# Состояния для регистрации
+class Registration(StatesGroup):
+    waiting_for_email = State()
+
+# Проверка валидности email
+def is_valid_email(email):
+    pattern = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
+    return re.match(pattern, email) is not None
+
+# Обработчик ввода email
+async def process_email(message: types.Message, state: FSMContext, config):
+    email = message.text.strip().lower()
+
+    # Проверка валидности email
+    if not is_valid_email(email):
+        await message.answer("Некорректный формат email. Пожалуйста, введите правильный email.")
+        return  # Сохраняем текущее состояние
+
+    # Проверка существования ментора через API
+    mentor = await get_mentor_by_email(config.api_url, email)
+
+    if not mentor:
+        await message.answer("Email не найден в базе менторов онлайн школы Strong Manager. Пожалуйста, проверьте правильность ввода или обратитесь к администратору.")
+        return  # Сохраняем текущее состояние
+
+    try:
+        # Регистрация Telegram ID в Google Sheets
+        await register_telegram_id(
+            config.api_url,
+            email,
+            message.from_user.id,
+            message.from_user.username
+        )
+
+        # Сохранение информации о менторе в локальной БД
+        async for session in get_session():
+            # Проверка, существует ли уже такой ментор
+            existing_mentor = await session.execute(
+                select(Mentor).where(Mentor.telegram_id == message.from_user.id)
+            )
+            existing_mentor = existing_mentor.scalars().first()
+
+            if existing_mentor:
+                # Обновление существующего ментора
+                existing_mentor.email = email
+                existing_mentor.username = message.from_user.username
+                existing_mentor.is_active = True
+                existing_mentor.updated_at = datetime.now()
+            else:
+                # Создание нового ментора
+                new_mentor = Mentor(
+                    telegram_id=message.from_user.id,
+                    email=email,
+                    first_name=message.from_user.first_name,
+                    last_name=message.from_user.last_name,
+                    username=message.from_user.username,
+                    is_active=True
+                )
+                session.add(new_mentor)
+
+            await session.commit()
+
+        # Завершение состояния регистрации
+        await state.finish()
+
+        # Отправка приветственного сообщения
+        await message.answer(
+            f"Вы успешно зарегистрированы в системе оповещений как ментор!\n\n"
+            f"Теперь вы будете получать уведомления о действиях ваших студентов.\n\n"
+            f"Для просмотра доступных команд используйте /help."
+        )
+
+        logger.info(f"Ментор {message.from_user.id} ({email}) успешно зарегистрирован")
+
+    except Exception as e:
+        logger.error(f"Ошибка при регистрации ментора {message.from_user.id} ({email}): {e}")
+        await message.answer("Произошла ошибка при регистрации. Пожалуйста, попробуйте позже или обратитесь к администратору.")
+        await state.finish()
+
+# Проверка авторизации пользователя
+async def check_auth(telegram_id):
+    try:
+        async for session in get_session():
+            mentor = await session.execute(
+                select(Mentor).where(
+                    Mentor.telegram_id == telegram_id,
+                    Mentor.is_active == True
+                )
+            )
+            mentor = mentor.scalars().first()
+            return mentor is not None
+    except Exception as e:
+        logger.error(f"Ошибка при проверке авторизации пользователя {telegram_id}: {e}")
+        return False
+
+def register_auth_handlers(dp: Dispatcher, config):
+    """
+    Регистрирует обработчики авторизации.
+
+    Args:
+        dp: Диспетчер бота
+        config: Конфигурация бота
+    """
+    dp.register_message_handler(
+        lambda msg: process_email(msg, dp.current_state(), config),
+        state=Registration.waiting_for_email
+    )

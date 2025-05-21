@@ -1,0 +1,14 @@
+name: getcourse-telegram-bot
+
+build:
+  type: python
+  python:
+    requirements: requirements.txt
+
+run:
+  command: python main.py
+  persistenceMount: /data
+  persistencePath: .
+  env:
+    - name: PYTHONUNBUFFERED
+      value: "1"

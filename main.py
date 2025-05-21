@@ -1,0 +1,135 @@
+import asyncio
+import logging
+import os
+import signal
+import sys
+import time
+from pathlib import Path
+
+import aiogram
+from aiogram import Bot, Dispatcher, executor
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from dotenv import load_dotenv
+
+from bot.config import Config
+from bot.handlers import register_all_handlers
+from bot.middlewares import setup_middlewares
+from bot.services.database import setup_database
+from bot.utils.logger import setup_logger
+
+# Задержка для предотвращения проблем с дублирующимися экземплярами бота на сервере
+time.sleep(5)
+
+# Загрузка переменных окружения
+load_dotenv()
+
+# Настройка логирования
+setup_logger()
+logger = logging.getLogger(__name__)
+
+# Создание директорий для данных
+def create_data_directories():
+    env = os.getenv("SERVER_ENV", "dev")
+    if env == "prod":
+        base_dir = Path("/data")
+    else:
+        base_dir = Path.cwd() / "data"
+
+    # Создание директории для базы данных
+    db_dir = base_dir / "database"
+    db_dir.mkdir(parents=True, exist_ok=True)
+
+    return base_dir, db_dir
+
+async def main():
+    try:
+        # Создание директорий
+        base_dir, db_dir = create_data_directories()
+
+        # Инициализация конфигурации
+        config = Config()
+
+        # Инициализация базы данных
+        await setup_database(config)
+
+        # Инициализация бота и диспетчера
+        bot = Bot(token=config.bot_token, parse_mode="HTML")
+        storage = MemoryStorage()
+        dp = Dispatcher(bot, storage=storage)
+
+        # Настройка middlewares
+        setup_middlewares(dp, config)
+
+        # Регистрация всех обработчиков
+        register_all_handlers(dp, config)
+
+        # Инициализация планировщика для проверки уведомлений
+        scheduler = AsyncIOScheduler()
+
+        # Импорт здесь для избежания циклических импортов
+        from bot.services.notifications import check_new_notifications
+
+        # Добавление задачи проверки уведомлений
+        scheduler.add_job(
+            check_new_notifications,
+            'interval',
+            seconds=config.polling_interval,
+            args=[bot, config]
+        )
+
+        # Обработчик сигналов для корректного завершения
+        async def on_shutdown(signal, frame):
+            logger.info("Завершение работы бота...")
+            # Остановка планировщика
+            scheduler.shutdown(wait=False)
+            # Закрытие соединений с БД и других ресурсов
+            await dp.storage.close()
+            await dp.storage.wait_closed()
+            await bot.session.close()
+            sys.exit(0)
+
+        # Регистрация обработчиков сигналов
+        if os.name == 'posix':  # Для UNIX-подобных систем
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                asyncio.get_event_loop().add_signal_handler(sig, lambda: asyncio.create_task(on_shutdown(sig, None)))
+        else:
+            logger.info("Запуск на Windows - обработка сигналов отключена.")
+
+        # Запуск планировщика
+        scheduler.start()
+
+        logger.info("Бот запущен")
+
+        # Запуск бота в режиме long polling или webhook в зависимости от конфигурации
+        if config.env == "prod" and config.webhook_host:
+            # Настройка webhook
+            webhook_url = f"{config.webhook_host}{config.webhook_path}"
+            await bot.set_webhook(webhook_url)
+            logger.info(f"Запуск бота в режиме webhook на {webhook_url}")
+
+            # Запуск web-сервера для обработки webhook-запросов
+            executor.start_webhook(
+                dispatcher=dp,
+                webhook_path=config.webhook_path,
+                skip_updates=True,
+                host='0.0.0.0',
+                port=config.webhook_port,
+            )
+        else:
+            # Запуск в режиме long polling
+            logger.info("Запуск бота в режиме long polling")
+            # Пропускаем накопившиеся обновления
+            await bot.delete_webhook(drop_pending_updates=True)
+            # Запускаем поллинг
+            await dp.start_polling()
+
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Бот остановлен")
+        # Здесь можно добавить код для корректного завершения работы
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}")
+        raise
+
+if __name__ == "__main__":
+    asyncio.run(main())
