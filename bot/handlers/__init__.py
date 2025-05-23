@@ -12,7 +12,7 @@ def register_all_handlers(dp, config):
         config: Конфигурация бота
     """
     # Порядок регистрации важен - обработчики регистрируются в порядке добавления
-    register_common_handlers(dp, config)
     register_auth_handlers(dp, config)
+    register_common_handlers(dp, config)
     register_admin_handlers(dp, config)
     register_notification_handlers(dp, config)
