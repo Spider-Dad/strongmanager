@@ -80,20 +80,29 @@ def register_common_handlers(dp: Dispatcher, config):
     dp.register_message_handler(
         lambda msg: cmd_start(msg, dp.current_state(), config),
         commands=["start"],
-        state="*"
+        state=None
     )
     dp.register_message_handler(
         lambda msg: cmd_help(msg, config),
         commands=["help"],
-        state="*"
+        state=None
     )
     dp.register_message_handler(
         lambda msg: cmd_about(msg, config),
         commands=["about"],
-        state="*"
+        state=None
     )
     dp.register_message_handler(
         cmd_unknown,
         commands=["*"],
-        state="*"
+        state=None
+    )
+
+    # Универсальный обработчик для всех текстовых сообщений (только если нет активного состояния)
+    dp.register_message_handler(
+        lambda message: message.answer(
+            "Для использования бота необходимо авторизоваться.\nПожалуйста, отправьте команду /start и следуйте инструкциям."
+        ),
+        state=None,
+        content_types=types.ContentType.TEXT
     )

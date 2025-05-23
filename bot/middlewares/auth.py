@@ -26,13 +26,4 @@ class AuthMiddleware(BaseMiddleware):
         # Проверяем авторизацию
         is_authorized = await check_auth(message.from_user.id)
         data['is_authorized'] = is_authorized
-
-        # Если пользователь не авторизован и пишет что-то кроме команд,
-        # предлагаем авторизоваться
-        if not is_authorized and not message.is_command():
-            await message.answer(
-                "Для использования бота необходимо авторизоваться.\n"
-                "Пожалуйста, отправьте команду /start и следуйте инструкциям."
-            )
-            # Останавливаем дальнейшую обработку
-            return False
+        # Не отправляем никаких сообщений и не останавливаем обработку
