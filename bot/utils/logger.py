@@ -25,7 +25,7 @@ def setup_logger():
     log_format = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     # Настройка файлового обработчика
-    file_handler = logging.FileHandler(log_file)
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setFormatter(log_format)
     root_logger.addHandler(file_handler)
 
