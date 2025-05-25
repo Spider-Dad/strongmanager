@@ -53,7 +53,6 @@ async def process_email(message: types.Message, state: FSMContext, config):
                 # Обновление существующего ментора
                 existing_mentor.email = email
                 existing_mentor.username = message.from_user.username
-                existing_mentor.is_active = True
                 existing_mentor.updated_at = datetime.now()
             else:
                 # Создание нового ментора
@@ -62,8 +61,7 @@ async def process_email(message: types.Message, state: FSMContext, config):
                     email=email,
                     first_name=message.from_user.first_name,
                     last_name=message.from_user.last_name,
-                    username=message.from_user.username,
-                    is_active=True
+                    username=message.from_user.username
                 )
                 session.add(new_mentor)
 
@@ -101,8 +99,7 @@ async def check_auth(telegram_id):
         async for session in get_session():
             mentor = await session.execute(
                 select(Mentor).where(
-                    Mentor.telegram_id == telegram_id,
-                    Mentor.is_active == True
+                    Mentor.telegram_id == telegram_id
                 )
             )
             mentor = mentor.scalars().first()

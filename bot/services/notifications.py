@@ -106,7 +106,6 @@ async def save_notification_to_db(session: AsyncSession, notification: Dict, sta
     """
     try:
         db_notification = Notification(
-            notification_id=str(notification.get("id")),
             mentor_id=notification.get("recipientId"),
             type=notification.get("type", "unknown"),
             message=notification.get("message", ""),
