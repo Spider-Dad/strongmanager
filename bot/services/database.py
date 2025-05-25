@@ -22,22 +22,90 @@ class Mentor(Base):
     first_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)
     username = Column(String(255), nullable=True)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 # Модель для хранения истории уведомлений
 class Notification(Base):
     __tablename__ = "notifications"
 
     id = Column(Integer, primary_key=True)
-    notification_id = Column(String(255), nullable=False)  # ID уведомления из Google Sheets
     mentor_id = Column(Integer, nullable=False)
     type = Column(String(50), nullable=False)  # Тип уведомления: answerToLesson, commentOnLesson, etc.
     message = Column(Text, nullable=False)  # Сообщение уведомления
     status = Column(String(20), default="pending")  # pending, sent, failed
     created_at = Column(DateTime, server_default=func.now())
     sent_at = Column(DateTime, nullable=True)
+    telegram_message_id = Column(String(50), nullable=True)  # ID апдейта Telegram
+
+# Модель для хранения данных о студентах
+class Student(Base):
+    __tablename__ = "students"
+    id = Column(Integer, primary_key=True)
+    user_email = Column(String(255), nullable=False)
+    first_name = Column(String(255), nullable=True)
+    last_name = Column(String(255), nullable=True)
+
+# Модель для хранения данных о сопоставлении студентов и менторов
+class Mapping(Base):
+    __tablename__ = "mapping"
+    id = Column(Integer, primary_key=True)
+    student_id = Column(Integer, nullable=False)
+    mentor_id = Column(Integer, nullable=False)
+    training_id = Column(Integer, nullable=False)
+    assigned_date = Column(DateTime, nullable=True)
+
+# Модель для хранения данных о тренировках
+class Training(Base):
+    __tablename__ = "trainings"
+    id = Column(Integer, primary_key=True)
+    title = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=True)
+    progress_table_id = Column(String(255), nullable=True)
+
+# Модель для хранения данных о занятиях
+class Lesson(Base):
+    __tablename__ = "lessons"
+    id = Column(Integer, primary_key=True)
+    training_id = Column(Integer, nullable=False)
+    module_number = Column(Integer, nullable=True)
+    lesson_number = Column(Integer, nullable=True)
+    title = Column(String(255), nullable=True)
+    opening_date = Column(DateTime, nullable=True)
+    deadline_date = Column(DateTime, nullable=True)
+
+# Модель для хранения данных о логах
+class Log(Base):
+    __tablename__ = "logs"
+    id = Column(Integer, primary_key=True)
+    date = Column(DateTime, nullable=True)
+    user_id = Column(Integer, nullable=True)
+    user_email = Column(String(255), nullable=True)
+    user_first_name = Column(String(255), nullable=True)
+    user_last_name = Column(String(255), nullable=True)
+    answer_id = Column(String(255), nullable=True)
+    answer_training_id = Column(Integer, nullable=True)
+    answer_lesson_id = Column(Integer, nullable=True)
+    answer_status = Column(String(50), nullable=True)
+    answer_text = Column(Text, nullable=True)
+    answer_type = Column(String(50), nullable=True)
+    answer_teacher_id = Column(String(255), nullable=True)
+    answer_training_title = Column(String(255), nullable=True)
+    action = Column(String(50), nullable=True)
+    webhook_date = Column(DateTime, nullable=True)
+
+# Модель для хранения данных о необработанных вебхуках
+class WebhookRawLog(Base):
+    __tablename__ = "webhook_raw_log"
+    id = Column(Integer, primary_key=True)
+    date = Column(DateTime, nullable=True)
+    raw_data = Column(Text, nullable=True)
+
+# Модель для хранения данных о вебхуках отладки
+class DebugLog(Base):
+    __tablename__ = "debug_log"
+    id = Column(Integer, primary_key=True)
+    date = Column(DateTime, nullable=True)
+    event = Column(String(255), nullable=True)  # Название функции/события
+    data = Column(Text, nullable=True)          # Данные события
 
 # Асинхронный движок базы данных
 async_engine = None
