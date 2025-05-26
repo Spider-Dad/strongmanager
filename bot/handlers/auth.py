@@ -117,6 +117,6 @@ def register_auth_handlers(dp: Dispatcher, config):
         config: Конфигурация бота
     """
     dp.register_message_handler(
-        lambda msg: process_email(msg, dp.current_state(), config),
+        lambda msg, state: process_email(msg, state, config),
         state=Registration.waiting_for_email
     )
