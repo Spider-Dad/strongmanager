@@ -42,6 +42,9 @@ def create_data_directories():
 
     return base_dir, db_dir
 
+async def on_startup(dp):
+    logger.info("Бот запущен")
+
 async def main():
     try:
         # Создание директорий
@@ -99,8 +102,6 @@ async def main():
         # Запуск планировщика
         scheduler.start()
 
-        logger.info("Бот запущен")
-
         # Запуск бота в режиме long polling или webhook в зависимости от конфигурации
         if config.env == "prod" and config.webhook_host:
             # Настройка webhook
@@ -115,6 +116,8 @@ async def main():
                 skip_updates=True,
                 host='0.0.0.0',
                 port=config.webhook_port,
+                on_startup=on_startup,
+                on_shutdown=on_shutdown
             )
         else:
             # Запуск в режиме long polling
@@ -132,4 +135,9 @@ async def main():
         raise
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(main())
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}")
+        raise
