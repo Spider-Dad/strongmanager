@@ -1,0 +1,62 @@
+# Секреты и локальные настройки
+.env
+*.env
+!.env.example
+
+# Временные файлы
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+
+# Сгенерированные файлы
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Виртуальное окружение
+venv/
+env/
+ENV/
+
+# Файлы среды разработки
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Данные и кэши
+data/
+!data/.gitkeep
+
+# Тестовые файлы
+*.xlsx
+*.xls
+*.csv
+*.test
+
+# Специфичные файлы операционной системы
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# credentials
+central-insight-409215-196210033b14.json
