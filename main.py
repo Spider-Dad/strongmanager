@@ -104,32 +104,41 @@ async def main():
 
         # Запуск бота в режиме long polling или webhook в зависимости от конфигурации
         if config.env == "prod" and config.webhook_host:
-            # Настройка webhook
-            webhook_url = f"{config.webhook_host}{config.webhook_path}"
-            await bot.set_webhook(webhook_url)
-            logger.info(f"Запуск бота в режиме webhook на {webhook_url}")
+            try:
+                # Настройка webhook
+                webhook_url = f"{config.webhook_host}{config.webhook_path}"
+                await bot.set_webhook(webhook_url)
+                logger.info(f"Запуск бота в режиме webhook на {webhook_url}")
 
-            # Запуск web-сервера для обработки webhook-запросов
-            from aiohttp import web
+                # Запуск web-сервера для обработки webhook-запросов
+                from aiohttp import web
 
-            app = web.Application()
-            webhook_requests_handler = web.RequestHandlerFactory(
-                dp=dp,
-                path=config.webhook_path,
-                skip_updates=True
-            )
-            app.router.add_post(config.webhook_path, webhook_requests_handler)
+                app = web.Application()
 
-            runner = web.AppRunner(app)
-            await runner.setup()
-            site = web.TCPSite(runner, '0.0.0.0', config.webhook_port)
-            await site.start()
+                async def webhook_handler(request):
+                    try:
+                        update = await request.json()
+                        await dp.process_update(update)
+                        return web.Response()
+                    except Exception as e:
+                        logger.error(f"Ошибка при обработке webhook: {e}")
+                        return web.Response(status=500)
 
-            logger.info("Webhook сервер запущен")
+                app.router.add_post(config.webhook_path, webhook_handler)
 
-            # Держим приложение запущенным
-            while True:
-                await asyncio.sleep(3600)  # Проверка каждый час
+                runner = web.AppRunner(app)
+                await runner.setup()
+                site = web.TCPSite(runner, '0.0.0.0', config.webhook_port)
+                await site.start()
+
+                logger.info("Webhook сервер запущен")
+
+                # Держим приложение запущенным
+                while True:
+                    await asyncio.sleep(3600)  # Проверка каждый час
+            except Exception as e:
+                logger.error(f"Ошибка при запуске webhook: {e}")
+                raise
         else:
             # Запуск в режиме long polling
             logger.info("Запуск бота в режиме long polling")
@@ -144,6 +153,14 @@ async def main():
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}")
         raise
+    finally:
+        # Закрываем все соединения при выходе
+        try:
+            await dp.storage.close()
+            await dp.storage.wait_closed()
+            await bot.session.close()
+        except Exception as e:
+            logger.error(f"Ошибка при закрытии соединений: {e}")
 
 if __name__ == "__main__":
     try:
