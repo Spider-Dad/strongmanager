@@ -78,7 +78,7 @@ def register_common_handlers(dp: Dispatcher, config):
         config: Конфигурация бота
     """
     dp.register_message_handler(
-        cmd_start,
+        lambda msg, state: cmd_start(msg, state, config),
         commands=["start"],
         state="*"
     )
