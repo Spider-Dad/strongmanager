@@ -5,10 +5,10 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from getcourse_bot.bot.services.database import (
+from bot.services.database import (
     Mentor, Student, Mapping, Training, Lesson, Log, Notification, WebhookRawLog, DebugLog, Base
 )
-from getcourse_bot.bot.services import database
+from bot.services import database
 from sqlalchemy import text
 
 # === НАСТРОЙКИ ===
