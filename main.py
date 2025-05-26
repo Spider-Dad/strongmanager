@@ -110,15 +110,26 @@ async def main():
             logger.info(f"Запуск бота в режиме webhook на {webhook_url}")
 
             # Запуск web-сервера для обработки webhook-запросов
-            executor.start_webhook(
-                dispatcher=dp,
-                webhook_path=config.webhook_path,
-                skip_updates=True,
-                host='0.0.0.0',
-                port=config.webhook_port,
-                on_startup=on_startup,
-                on_shutdown=on_shutdown
+            from aiohttp import web
+
+            app = web.Application()
+            webhook_requests_handler = web.RequestHandlerFactory(
+                dp=dp,
+                path=config.webhook_path,
+                skip_updates=True
             )
+            app.router.add_post(config.webhook_path, webhook_requests_handler)
+
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, '0.0.0.0', config.webhook_port)
+            await site.start()
+
+            logger.info("Webhook сервер запущен")
+
+            # Держим приложение запущенным
+            while True:
+                await asyncio.sleep(3600)  # Проверка каждый час
         else:
             # Запуск в режиме long polling
             logger.info("Запуск бота в режиме long polling")
@@ -136,8 +147,9 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(main())
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Бот остановлен")
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}")
         raise
