@@ -1,14 +1,11 @@
-name: getcourse-telegram-bot
-
+meta:
+  environment: python
+  toolchain:
+    name: pip
+    version: 3.11
 build:
-  type: python
-  python:
-    requirements: requirements.txt
-
+  requirementsPath: requirements.txt
 run:
-  command: python main.py
+  scriptName: bot.py
   persistenceMount: /data
-  persistencePath: .
-  env:
-    - name: PYTHONUNBUFFERED
-      value: "1"
+  containerPort: 80
