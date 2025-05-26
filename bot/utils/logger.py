@@ -19,7 +19,7 @@ def setup_logger():
 
     # Настройка корневого логгера
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(logging.DEBUG)
 
     # Форматирование логов
     log_format = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -35,6 +35,6 @@ def setup_logger():
     root_logger.addHandler(console_handler)
 
     # Установка уровня логирования для некоторых модулей
-    logging.getLogger("aiogram").setLevel(logging.WARNING)
-    logging.getLogger("aiohttp").setLevel(logging.WARNING)
-    logging.getLogger("apscheduler").setLevel(logging.WARNING)
+    logging.getLogger("aiogram").setLevel(logging.INFO)
+    logging.getLogger("aiohttp").setLevel(logging.INFO)
+    logging.getLogger("apscheduler").setLevel(logging.INFO)

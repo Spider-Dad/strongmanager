@@ -117,11 +117,16 @@ async def main():
 
                 async def webhook_handler(request):
                     try:
-                        update = await request.json()
+                        update_dict = await request.json()
+                        logger.debug(f"Получен webhook: {update_dict}")
+                        update = aiogram.types.Update(**update_dict)
+                        logger.debug(f"Создан объект Update: {update}")
                         await dp.process_update(update)
+                        logger.debug("Update успешно обработан")
                         return web.Response()
                     except Exception as e:
                         logger.error(f"Ошибка при обработке webhook: {e}")
+                        logger.error(f"Данные webhook: {update_dict if 'update_dict' in locals() else 'Нет данных'}")
                         return web.Response(status=500)
 
                 app.router.add_post(config.webhook_path, webhook_handler)
