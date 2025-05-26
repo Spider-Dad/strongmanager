@@ -78,24 +78,24 @@ def register_common_handlers(dp: Dispatcher, config):
         config: Конфигурация бота
     """
     dp.register_message_handler(
-        lambda msg, state: cmd_start(msg, state, config),
+        cmd_start,
         commands=["start"],
-        state=None
+        state="*"
     )
     dp.register_message_handler(
         lambda msg: cmd_help(msg, config),
         commands=["help"],
-        state=None
+        state="*"
     )
     dp.register_message_handler(
         lambda msg: cmd_about(msg, config),
         commands=["about"],
-        state=None
+        state="*"
     )
     dp.register_message_handler(
         cmd_unknown,
         commands=["*"],
-        state=None
+        state="*"
     )
 
     # Универсальный обработчик для всех текстовых сообщений (только если нет активного состояния)
