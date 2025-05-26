@@ -60,3 +60,4 @@ desktop.ini
 
 # credentials
 central-insight-409215-196210033b14.json
+import_gsheets_to_sqlite.py
