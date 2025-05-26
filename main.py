@@ -121,6 +121,7 @@ async def main():
                         logger.debug(f"Получен webhook: {update_dict}")
                         update = aiogram.types.Update(**update_dict)
                         logger.debug(f"Создан объект Update: {update}")
+                        aiogram.Bot.set_current(bot)
                         await dp.process_update(update)
                         logger.debug("Update успешно обработан")
                         return web.Response()

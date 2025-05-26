@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+import aiogram
 
 def setup_logger():
     # Определение директории для логов
