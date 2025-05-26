@@ -114,6 +114,8 @@ async def main():
                 from aiohttp import web
 
                 app = web.Application()
+                app['bot'] = bot  # Сохраняем bot
+                app['dp'] = dp    # Сохраняем dp
 
                 async def webhook_handler(request):
                     try:
@@ -121,13 +123,24 @@ async def main():
                         logger.debug(f"Получен webhook: {update_dict}")
                         update = aiogram.types.Update(**update_dict)
                         logger.debug(f"Создан объект Update: {update}")
-                        aiogram.Bot.set_current(bot)
-                        await dp.process_update(update)
+
+                        # Получаем экземпляры Bot и Dispatcher из состояния приложения
+                        current_bot = request.app['bot']
+                        current_dp = request.app['dp']
+
+                        # Устанавливаем текущие экземпляры для aiogram
+                        aiogram.Bot.set_current(current_bot)
+                        aiogram.Dispatcher.set_current(current_dp)
+
+                        await current_dp.process_update(update)
                         logger.debug("Update успешно обработан")
                         return web.Response()
                     except Exception as e:
                         logger.error(f"Ошибка при обработке webhook: {e}")
-                        logger.error(f"Данные webhook: {update_dict if 'update_dict' in locals() else 'Нет данных'}")
+                        # Важно не пытаться получить update_dict снова, если await request.json() уже вызвал ошибку
+                        # или если update_dict не был определен.
+                        update_data_for_log = locals().get('update_dict', 'Нет данных')
+                        logger.error(f"Данные webhook: {update_data_for_log}")
                         return web.Response(status=500)
 
                 app.router.add_post(config.webhook_path, webhook_handler)
