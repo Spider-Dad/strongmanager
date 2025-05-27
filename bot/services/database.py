@@ -115,7 +115,7 @@ async def setup_database(config):
     global async_engine, async_session
 
     # Создание директории для базы данных
-    config.db_dir.mkdir(parents=True, exist_ok=True)
+    config.data_dir.mkdir(parents=True, exist_ok=True)
 
     # Создание асинхронного движка
     async_engine = create_async_engine(config.db_url, echo=False)
