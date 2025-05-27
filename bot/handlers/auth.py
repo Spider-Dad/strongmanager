@@ -43,17 +43,19 @@ async def process_email(message: types.Message, state: FSMContext, config):
         # Если мы дошли сюда, значит регистрация в API успешна
         # Сохраняем информацию о менторе в локальной БД
         async for session in get_session():
-            # Проверка, существует ли уже такой ментор
+            # Проверка, существует ли уже такой ментор по email
             existing_mentor = await session.execute(
-                select(Mentor).where(Mentor.telegram_id == message.from_user.id)
+                select(Mentor).where(Mentor.email == email)
             )
             existing_mentor = existing_mentor.scalars().first()
 
             if existing_mentor:
                 # Обновление существующего ментора
-                existing_mentor.email = email
+                existing_mentor.telegram_id = message.from_user.id
+                existing_mentor.first_name = message.from_user.first_name
+                existing_mentor.last_name = message.from_user.last_name
                 existing_mentor.username = message.from_user.username
-                existing_mentor.updated_at = datetime.now()
+                # Если есть поле updated_at, можно обновить его здесь
             else:
                 # Создание нового ментора
                 new_mentor = Mentor(
