@@ -17,7 +17,7 @@ class Mentor(Base):
     __tablename__ = "mentors"
 
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(Integer, unique=True, nullable=False)
+    telegram_id = Column(Integer, unique=True, nullable=True)
     email = Column(String(255), unique=True, nullable=False)
     first_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)

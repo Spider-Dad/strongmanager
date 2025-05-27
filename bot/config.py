@@ -24,8 +24,7 @@ class Config:
         else:
             self.data_dir = Path.cwd() / "data"
 
-        self.db_dir = self.data_dir / "database"
-        self.db_path = self.db_dir / "getcourse_bot.db"
+        self.db_path = self.data_dir / "getcourse_bot.db"
 
         # URL для базы данных
         self.db_url = f"sqlite+aiosqlite:///{self.db_path}"
