@@ -187,3 +187,79 @@ def format_student_action(student_name: str, action: str, task_name: str, url: O
         text += f"\n\n{link('Посмотреть задание', url)}"
 
     return text
+
+
+def convert_pseudo_markdown_to_v2(text: str) -> str:
+    """
+    Конвертирует псевдо-markdown (с простыми * для жирного текста) в правильный MarkdownV2.
+
+    Args:
+        text: Исходный текст с псевдо-markdown
+
+    Returns:
+        Текст в формате MarkdownV2
+    """
+    import re
+
+    # Сначала обрабатываем ссылки, чтобы не трогать их содержимое
+    links = []
+    link_pattern = r'\[([^\]]+)\]\(([^)]+)\)'
+
+    def save_link(match):
+        link_text = match.group(1).replace('*', '')  # Убираем звездочки из текста ссылки
+        url = match.group(2)
+        placeholder = f"LINKPLACEHOLDER{len(links)}"
+        links.append(f'[{escape_markdown_v2(link_text)}]({url})')
+        return placeholder
+
+    # Заменяем ссылки на плейсхолдеры
+    text = re.sub(link_pattern, save_link, text)
+
+    # Теперь обрабатываем жирный текст
+    # Ищем текст между звездочками
+    bold_pattern = r'\*([^*]+)\*'
+
+    def replace_bold(match):
+        bold_text = match.group(1)
+        return f'*{escape_markdown_v2(bold_text)}*'
+
+    # Заменяем жирный текст
+    text = re.sub(bold_pattern, replace_bold, text)
+
+    # Экранируем остальные специальные символы, но НЕ звездочки от жирного текста
+    # Разделяем текст на части, чтобы не трогать уже обработанный markdown
+
+    # Находим все позиции жирного текста и плейсхолдеров ссылок
+    protected_positions = []
+    for match in re.finditer(r'\*[^*]+\*', text):
+        protected_positions.append((match.start(), match.end()))
+
+    for match in re.finditer(r'LINKPLACEHOLDER\d+', text):
+        protected_positions.append((match.start(), match.end()))
+
+    # Сортируем позиции по порядку
+    protected_positions.sort()
+
+    # Обрабатываем текст по частям
+    result = ""
+    last_pos = 0
+
+    for start, end in protected_positions:
+        # Обрабатываем текст перед защищенной областью
+        before_protected = text[last_pos:start]
+        result += escape_markdown_v2(before_protected)
+
+        # Добавляем защищенную область как есть
+        result += text[start:end]
+
+        last_pos = end
+
+    # Обрабатываем оставшийся текст
+    if last_pos < len(text):
+        result += escape_markdown_v2(text[last_pos:])
+
+    # Восстанавливаем ссылки
+    for i, link in enumerate(links):
+        result = result.replace(f"LINKPLACEHOLDER{i}", link)
+
+    return result

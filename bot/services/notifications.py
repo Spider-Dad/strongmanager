@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.services.api import get_new_notifications, update_notification_status
 from bot.services.database import get_session, Mentor, Notification
 from bot.config import Config
-from bot.utils.markdown import escape_markdown_v2, format_notification, format_student_action
+from bot.utils.markdown import escape_markdown_v2, format_notification, format_student_action, convert_pseudo_markdown_to_v2
 
 logger = logging.getLogger(__name__)
 
@@ -133,36 +133,14 @@ def format_notification_message(notification: Dict) -> str:
     Returns:
         Отформатированное сообщение
     """
-    notification_type = notification.get("type", "unknown")
     message = notification.get("message", "")
 
-    # Если сообщение уже отформатировано, возвращаем как есть
-    if message.startswith("*") or message.startswith("_"):
-        return message
+    if not message:
+        return "Пустое уведомление"
 
-    # Базовое форматирование для разных типов уведомлений
-    if notification_type == "student_answer":
-        student_name = notification.get("studentName", "Неизвестный студент")
-        task_name = notification.get("taskName", "Неизвестное задание")
-        url = notification.get("url")
-        return format_student_action(student_name, "отправил ответ на задание", task_name, url)
+    # Если сообщение содержит псевдо-markdown (звездочки и ссылки), конвертируем его
+    if "*" in message or "[" in message:
+        return convert_pseudo_markdown_to_v2(message)
 
-    elif notification_type == "student_comment":
-        student_name = notification.get("studentName", "Неизвестный студент")
-        task_name = notification.get("taskName", "Неизвестное задание")
-        url = notification.get("url")
-        return format_student_action(student_name, "оставил комментарий к заданию", task_name, url)
-
-    elif notification_type == "task_deadline":
-        task_name = notification.get("taskName", "Неизвестное задание")
-        deadline = notification.get("deadline", "")
-        url = notification.get("url")
-        return format_notification(
-            "⏰ Приближается дедлайн",
-            f"Задание: {task_name}\nДедлайн: {deadline}",
-            url
-        )
-
-    else:
-        # Для остальных типов уведомлений просто экранируем текст
-        return escape_markdown_v2(message)
+    # Если обычный текст, просто экранируем
+    return escape_markdown_v2(message)
