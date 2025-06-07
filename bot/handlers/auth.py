@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from bot.services.api import get_mentor_by_email, register_telegram_id, ApiError
 from bot.services.database import Mentor, get_session
+from bot.utils.markdown import escape_markdown_v2, bold
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ async def process_email(message: types.Message, state: FSMContext, config):
 
     # Проверка валидности email
     if not is_valid_email(email):
-        await message.answer("Некорректный формат email. Пожалуйста, введите правильный email.")
+        await message.answer(f"Некорректный формат email\\. Пожалуйста, введите правильный email\\.")
         return  # Сохраняем текущее состояние
 
     try:
@@ -74,9 +75,9 @@ async def process_email(message: types.Message, state: FSMContext, config):
 
         # Отправка приветственного сообщения
         await message.answer(
-            f"Вы успешно зарегистрированы в системе оповещений как ментор!\n\n"
-            f"Теперь вы будете получать уведомления о действиях ваших студентов.\n\n"
-            f"Для просмотра доступных команд используйте /help."
+            f"{bold('Вы успешно зарегистрированы в системе оповещений как ментор!')}\n\n"
+            f"Теперь вы будете получать уведомления о действиях ваших студентов\\.\n\n"
+            f"Для просмотра доступных команд используйте /help\\."
         )
 
         logger.info(f"Ментор {message.from_user.id} ({email}) успешно зарегистрирован")
@@ -84,15 +85,15 @@ async def process_email(message: types.Message, state: FSMContext, config):
     except ApiError as e:
         error_message = str(e)
         if "Mentor with this email not found" in error_message:
-            await message.answer("Email не найден в базе менторов онлайн школы Strong Manager. Пожалуйста, проверьте правильность ввода или обратитесь к администратору.")
+            await message.answer(f"Email не найден в базе менторов онлайн школы Strong Manager\\. Пожалуйста, проверьте правильность ввода или обратитесь к администратору\\.")
         else:
             logger.error(f"Ошибка API при регистрации ментора {message.from_user.id} ({email}): {e}")
-            await message.answer("Произошла ошибка при регистрации. Пожалуйста, попробуйте позже или обратитесь к администратору.")
+            await message.answer(f"Произошла ошибка при регистрации\\. Пожалуйста, попробуйте позже или обратитесь к администратору\\.")
             await state.finish()  # Сбрасываем состояние при критической ошибке
 
     except Exception as e:
         logger.error(f"Ошибка при регистрации ментора {message.from_user.id} ({email}): {e}")
-        await message.answer("Произошла ошибка при регистрации. Пожалуйста, попробуйте позже или обратитесь к администратору.")
+        await message.answer(f"Произошла ошибка при регистрации\\. Пожалуйста, попробуйте позже или обратитесь к администратору\\.")
         await state.finish()  # Сбрасываем состояние при критической ошибке
 
 # Проверка авторизации пользователя

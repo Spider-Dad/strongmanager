@@ -57,7 +57,7 @@ async def main():
         await setup_database(config)
 
         # Инициализация бота и диспетчера
-        bot = Bot(token=config.bot_token, parse_mode="HTML")
+        bot = Bot(token=config.bot_token, parse_mode="MarkdownV2")
         storage = MemoryStorage()
         dp = Dispatcher(bot, storage=storage)
 
