@@ -5,6 +5,7 @@ import signal
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 import aiogram
 from aiogram import Bot, Dispatcher, executor
@@ -16,7 +17,8 @@ from bot.config import Config
 from bot.handlers import register_all_handlers
 from bot.middlewares import setup_middlewares
 from bot.services.database import setup_database
-from bot.utils.logger import setup_logger
+from bot.utils.logger import setup_logger, setup_logger_with_alerts
+from bot.utils.alerts import AlertHandler
 
 # Задержка для предотвращения проблем с дублирующимися экземплярами бота на сервере
 time.sleep(5)
@@ -24,9 +26,12 @@ time.sleep(5)
 # Загрузка переменных окружения
 load_dotenv()
 
-# Настройка логирования
+# Настройка логирования (базовая, без алертов пока)
 setup_logger()
 logger = logging.getLogger(__name__)
+
+# Глобальная переменная для хранения обработчика алертов
+alert_handler: Optional[AlertHandler] = None
 
 # Создание директорий для данных
 def create_data_directories():
@@ -46,6 +51,7 @@ async def on_startup(dp):
     logger.info("Бот запущен")
 
 async def main():
+    global alert_handler
     try:
         # Создание директорий
         base_dir, db_dir = create_data_directories()
@@ -60,6 +66,13 @@ async def main():
         bot = Bot(token=config.bot_token, parse_mode="MarkdownV2")
         storage = MemoryStorage()
         dp = Dispatcher(bot, storage=storage)
+
+        # Настройка системы алертов
+        if config.admin_ids:
+            logger.info(f"Настройка системы алертов для администраторов: {config.admin_ids}")
+            alert_handler = setup_logger_with_alerts(bot, config.admin_ids)
+        else:
+            logger.warning("Список администраторов не настроен. Система алертов отключена.")
 
         # Настройка middlewares
         setup_middlewares(dp, config)
@@ -84,6 +97,11 @@ async def main():
         # Обработчик сигналов для корректного завершения
         async def on_shutdown(signal, frame):
             logger.info("Завершение работы бота...")
+
+            # Остановка обработчика алертов
+            if alert_handler:
+                alert_handler.stop()
+
             # Остановка планировщика
             scheduler.shutdown(wait=False)
             # Закрытие соединений с БД и других ресурсов
@@ -168,13 +186,19 @@ async def main():
 
     except (KeyboardInterrupt, SystemExit):
         logger.info("Бот остановлен")
-        # Здесь можно добавить код для корректного завершения работы
+        # Остановка обработчика алертов при завершении
+        if alert_handler:
+            alert_handler.stop()
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}")
         raise
     finally:
         # Закрываем все соединения при выходе
         try:
+            # Остановка обработчика алертов
+            if alert_handler:
+                alert_handler.stop()
+
             await dp.storage.close()
             await dp.storage.wait_closed()
             await bot.session.close()

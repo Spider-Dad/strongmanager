@@ -52,6 +52,10 @@ data/
 *.xls
 *.csv
 *.test
+test_alerts.py
+check_admin.py
+test_formatting.py
+test_user_roles.py
 
 # Специфичные файлы операционной системы
 .DS_Store
