@@ -1,6 +1,6 @@
 # GetCourse Telegram Bot
 
-**Версия: 1.1.1**
+**Версия: 1.1.2**
 
 Телеграм-бот для оповещения наставников онлайн школы Strong Manager о действиях студентов в платформе GetCourse.
 
@@ -128,7 +128,8 @@ SYNC_INTERVAL_MINUTES=60
 1. **Файл сервисного аккаунта Google Cloud**
    - Необходим для синхронизации с Google Sheets
    - Получите в [Google Cloud Console](https://console.cloud.google.com/)
-   - Укажите путь в переменной `GOOGLE_CREDENTIALS_PATH`
+   - Разместите в папке `/data` на сервере (рекомендуется)
+   - Или укажите путь в переменной `GOOGLE_CREDENTIALS_PATH`
 
 2. **Переменные окружения**: `.env`
    - Создайте на основе `env.example`

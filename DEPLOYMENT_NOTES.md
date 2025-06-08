@@ -12,10 +12,14 @@
 4. Сгенерируйте JSON-ключ для сервисного аккаунта
 5. Предоставьте доступ сервисному аккаунту к вашей Google таблице
 
-**Размещение:**
-- Скопируйте файл на сервер в безопасное место
-- Укажите путь к файлу в переменной окружения `GOOGLE_CREDENTIALS_PATH`
-- По умолчанию бот ищет файл `google_credentials.json` в корневой директории
+**Размещение на сервере:**
+- **Рекомендуется**: поместить файл в папку `/data` на сервере
+- Для prod окружения путь будет: `/data/central-insight-409215-196210033b14.json`
+- Файл в папке `/data` сохранится при пересборке проекта
+
+**Настройка пути:**
+- По умолчанию бот ищет файл в `/data` (для prod) или `./data` (для dev)
+- Можно указать другой путь через `GOOGLE_CREDENTIALS_PATH` в `.env`
 
 **Важно:** Никогда не коммитьте файл с ключами в репозиторий!
 
@@ -30,7 +34,8 @@ ADMIN_IDS=123456789,987654321
 POLLING_INTERVAL=15
 SERVER_ENV=prod
 SYNC_INTERVAL_MINUTES=60
-GOOGLE_CREDENTIALS_PATH=path/to/your/credentials.json
+# Опционально, если файл не в стандартном месте:
+# GOOGLE_CREDENTIALS_PATH=/custom/path/to/credentials.json
 GOOGLE_SPREADSHEET_ID=your_spreadsheet_id_here
 ```
 
@@ -50,7 +55,7 @@ GOOGLE_SPREADSHEET_ID=your_spreadsheet_id_here
 
 1. Клонируйте репозиторий
 2. Создайте файл `.env` на основе `env.example`
-3. Получите и разместите файл сервисного аккаунта Google Cloud
+3. Скопируйте файл сервисного аккаунта в папку `/data` на сервере
 4. Установите зависимости: `pip install -r requirements.txt`
 5. Запустите бота: `python main.py`
 

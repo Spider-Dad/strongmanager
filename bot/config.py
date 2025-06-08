@@ -30,5 +30,16 @@ class Config:
         self.db_url = f"sqlite+aiosqlite:///{self.db_path}"
 
         # Google Sheets credentials
-        self.google_credentials_path = os.getenv("GOOGLE_CREDENTIALS_PATH", "google_credentials.json")
+        # Если путь не указан явно, используем путь в папке data
+        credentials_path = os.getenv("GOOGLE_CREDENTIALS_PATH")
+        if credentials_path:
+            # Если указан путь, используем его как есть
+            self.google_credentials_path = credentials_path
+        else:
+            # Если не указан, используем файл в папке data
+            if self.env == "prod":
+                self.google_credentials_path = "/data/central-insight-409215-196210033b14.json"
+            else:
+                self.google_credentials_path = str(self.data_dir / "central-insight-409215-196210033b14.json")
+
         self.google_spreadsheet_id = os.getenv("GOOGLE_SPREADSHEET_ID", "1HAq1DHBQH0xLthA-gvnBOg-0vpkDjaBsEOQxNx51WLo")
