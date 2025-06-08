@@ -19,6 +19,7 @@ from bot.middlewares import setup_middlewares
 from bot.services.database import setup_database
 from bot.utils.logger import setup_logger, setup_logger_with_alerts
 from bot.utils.alerts import AlertHandler
+from bot.services.sync_service import SyncService
 
 # Задержка для предотвращения проблем с дублирующимися экземплярами бота на сервере
 time.sleep(5)
@@ -32,6 +33,9 @@ logger = logging.getLogger(__name__)
 
 # Глобальная переменная для хранения обработчика алертов
 alert_handler: Optional[AlertHandler] = None
+
+# Глобальная переменная для хранения сервиса синхронизации
+sync_service: Optional[SyncService] = None
 
 # Создание директорий для данных
 def create_data_directories():
@@ -51,7 +55,7 @@ async def on_startup(dp):
     logger.info("Бот запущен")
 
 async def main():
-    global alert_handler
+    global alert_handler, sync_service
     try:
         # Создание директорий
         base_dir, db_dir = create_data_directories()
@@ -80,6 +84,15 @@ async def main():
         # Регистрация всех обработчиков
         register_all_handlers(dp, config)
 
+        # Инициализация сервиса синхронизации
+        sync_service = SyncService(config)
+
+        # Создание таблицы истории синхронизации если её нет
+        await sync_service.ensure_sync_table()
+
+        # Запуск автоматической синхронизации если настроена
+        await sync_service.start_auto_sync()
+
         # Инициализация планировщика для проверки уведомлений
         scheduler = AsyncIOScheduler()
 
@@ -97,6 +110,10 @@ async def main():
         # Обработчик сигналов для корректного завершения
         async def on_shutdown(signal, frame):
             logger.info("Завершение работы бота...")
+
+            # Остановка автоматической синхронизации
+            if sync_service:
+                await sync_service.stop_auto_sync()
 
             # Остановка обработчика алертов
             if alert_handler:
@@ -186,7 +203,9 @@ async def main():
 
     except (KeyboardInterrupt, SystemExit):
         logger.info("Бот остановлен")
-        # Остановка обработчика алертов при завершении
+        # Остановка сервисов при завершении
+        if sync_service:
+            await sync_service.stop_auto_sync()
         if alert_handler:
             alert_handler.stop()
     except Exception as e:
@@ -195,7 +214,9 @@ async def main():
     finally:
         # Закрываем все соединения при выходе
         try:
-            # Остановка обработчика алертов
+            # Остановка сервисов
+            if sync_service:
+                await sync_service.stop_auto_sync()
             if alert_handler:
                 alert_handler.stop()
 

@@ -28,3 +28,7 @@ class Config:
 
         # URL для базы данных
         self.db_url = f"sqlite+aiosqlite:///{self.db_path}"
+
+        # Google Sheets credentials
+        self.google_credentials_path = os.getenv("GOOGLE_CREDENTIALS_PATH", "google_credentials.json")
+        self.google_spreadsheet_id = os.getenv("GOOGLE_SPREADSHEET_ID", "1HAq1DHBQH0xLthA-gvnBOg-0vpkDjaBsEOQxNx51WLo")

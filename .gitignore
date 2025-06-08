@@ -56,12 +56,19 @@ test_alerts.py
 check_admin.py
 test_formatting.py
 test_user_roles.py
+test_sync.py
 
 # Специфичные файлы операционной системы
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# credentials
-central-insight-409215-196210033b14.json
+# Google Cloud credentials
+*credentials*.json
+*service-account*.json
+google_*.json
+gcp_*.json
+central-insight-*.json
+
+# Устаревшие файлы
 import_gsheets_to_sqlite.py
