@@ -57,6 +57,7 @@ check_admin.py
 test_formatting.py
 test_user_roles.py
 test_sync.py
+test_admin_commands.py
 
 # Специфичные файлы операционной системы
 .DS_Store

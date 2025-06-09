@@ -12,11 +12,11 @@ def register_all_handlers(dp, config):
         config: Конфигурация бота
     """
     # Порядок регистрации важен - обработчики регистрируются в порядке добавления
-    # Сначала регистрируем команды администратора (они имеют более высокий приоритет)
+    # Сначала регистрируем общие команды (включая перехват админских команд для неадминов)
+    register_common_handlers(dp, config)
+    # Затем регистрируем команды администратора (они будут работать только для админов)
     register_admin_handlers(dp, config)
     # Затем обработчики авторизации
     register_auth_handlers(dp, config)
-    # Общие команды
-    register_common_handlers(dp, config)
     # И в конце - обработчики уведомлений
     register_notification_handlers(dp, config)
