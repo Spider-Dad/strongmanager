@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, Column, DateTime, String, Integer
 from bot.services.database import Base
 from bot.services import database
+from bot.utils.retry import retry_with_backoff, sync_circuit_breaker
 import json
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,11 @@ class SyncService:
 
         # Получаем интервал синхронизации из переменной окружения (в минутах)
         self.sync_interval = int(os.getenv("SYNC_INTERVAL_MINUTES", "0"))
+
+        # Настройки retry для синхронизации
+        self.max_retries = int(os.getenv("SYNC_MAX_RETRIES", "3"))
+        self.retry_base_delay = float(os.getenv("SYNC_RETRY_BASE_DELAY", "2.0"))
+        self.retry_max_delay = float(os.getenv("SYNC_RETRY_MAX_DELAY", "120.0"))
 
     async def start_auto_sync(self):
         """Запускает автоматическую синхронизацию по расписанию"""
@@ -91,6 +97,59 @@ class SyncService:
         except Exception:
             return None
 
+    async def _read_sheets(self) -> Dict[str, Any]:
+        """
+        Читает данные из Google Sheets с retry логикой
+        """
+        logger.info("Подключение к Google Sheets API")
+        
+        # Проверяем существование файла учетных данных
+        if not os.path.exists(self.credentials_file):
+            error_msg = f"Файл учетных данных не найден: {self.credentials_file}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
+
+        return await retry_with_backoff(
+            self._read_sheets_internal,
+            max_retries=self.max_retries,
+            base_delay=self.retry_base_delay,
+            max_delay=self.retry_max_delay,
+            retry_exceptions=[Exception],  # Повторяем все исключения
+            circuit_breaker=sync_circuit_breaker
+        )
+
+    async def _read_sheets_internal(self) -> Dict[str, Any]:
+        """
+        Внутренняя функция для чтения Google Sheets
+        """
+        # Авторизация в Google Sheets
+        creds = Credentials.from_service_account_file(self.credentials_file, scopes=self.scopes)
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(self.spreadsheet_id)
+
+        # Чтение всех листов
+        logger.info("Начало чтения данных из Google Sheets")
+        sheets_data = {
+            'mentors': sh.worksheet('mentors').get_all_records(),
+            'students': sh.worksheet('students').get_all_records(),
+            'mapping': sh.worksheet('mapping').get_all_records(),
+            'trainings': sh.worksheet('trainings').get_all_records(),
+            'lessons': sh.worksheet('lessons').get_all_records(),
+            'logs': sh.worksheet('logs').get_all_records(),
+            'notifications': sh.worksheet('notifications').get_all_records(),
+            'webhook_raw_log': sh.worksheet('webhook_raw_log').get_all_records(),
+            'debug_log': sh.worksheet('debug_log').get_all_records()
+        }
+        
+        logger.info(f"Успешно прочитано {sum(len(data) for data in sheets_data.values())} записей")
+        return sheets_data
+
+    async def _read_google_sheets_with_retry(self) -> Dict[str, Any]:
+        """
+        Читает данные из Google Sheets с retry логикой (обертка для совместимости)
+        """
+        return await self._read_sheets()
+
     async def sync_database(self) -> Dict[str, Any]:
         """Выполняет синхронизацию БД с Google Sheets"""
         if self.is_syncing:
@@ -107,24 +166,8 @@ class SyncService:
         }
 
         try:
-            # Авторизация в Google Sheets
-            creds = Credentials.from_service_account_file(self.credentials_file, scopes=self.scopes)
-            gc = gspread.authorize(creds)
-            sh = gc.open_by_key(self.spreadsheet_id)
-
-            # Чтение всех листов
-            logger.info("Начало чтения данных из Google Sheets")
-            sheets_data = {
-                'mentors': sh.worksheet('mentors').get_all_records(),
-                'students': sh.worksheet('students').get_all_records(),
-                'mapping': sh.worksheet('mapping').get_all_records(),
-                'trainings': sh.worksheet('trainings').get_all_records(),
-                'lessons': sh.worksheet('lessons').get_all_records(),
-                'logs': sh.worksheet('logs').get_all_records(),
-                'notifications': sh.worksheet('notifications').get_all_records(),
-                'webhook_raw_log': sh.worksheet('webhook_raw_log').get_all_records(),
-                'debug_log': sh.worksheet('debug_log').get_all_records()
-            }
+            # Чтение данных из Google Sheets с retry логикой
+            sheets_data = await self._read_google_sheets_with_retry()
 
             # Импорт данных в БД
             async with database.async_session() as session:

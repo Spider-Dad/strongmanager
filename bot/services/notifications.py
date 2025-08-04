@@ -24,7 +24,7 @@ async def check_new_notifications(bot: Bot, config: Config):
     """
     try:
         # Получение новых уведомлений из API
-        notifications = await get_new_notifications(config.api_url, limit=20)
+        notifications = await get_new_notifications(config.api_url, limit=20, config=config)
 
         if not notifications:
             return
@@ -74,7 +74,8 @@ async def process_notification(bot: Bot, config: Config, notification: Dict):
             config.api_url,
             notification_id,
             "sent",
-            message.message_id
+            message.message_id,
+            config
         )
 
         # Сохранение в локальной БД
@@ -88,7 +89,7 @@ async def process_notification(bot: Bot, config: Config, notification: Dict):
 
         # Обновление статуса на "failed"
         try:
-            await update_notification_status(config.api_url, notification_id, "failed")
+            await update_notification_status(config.api_url, notification_id, "failed", config=config)
 
             # Сохранение в локальной БД
             async for session in get_session():

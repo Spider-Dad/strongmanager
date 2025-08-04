@@ -43,3 +43,10 @@ class Config:
                 self.google_credentials_path = str(self.data_dir / "central-insight-409215-196210033b14.json")
 
         self.google_spreadsheet_id = os.getenv("GOOGLE_SPREADSHEET_ID", "1HAq1DHBQH0xLthA-gvnBOg-0vpkDjaBsEOQxNx51WLo")
+
+        # Настройки таймаутов и retry
+        self.http_timeout = int(os.getenv("HTTP_TIMEOUT", 30))  # секунды
+        self.http_connect_timeout = int(os.getenv("HTTP_CONNECT_TIMEOUT", 10))  # секунды
+        self.max_retries = int(os.getenv("MAX_RETRIES", 3))
+        self.retry_base_delay = float(os.getenv("RETRY_BASE_DELAY", 1.0))
+        self.retry_max_delay = float(os.getenv("RETRY_MAX_DELAY", 60.0))

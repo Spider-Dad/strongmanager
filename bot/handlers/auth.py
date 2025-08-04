@@ -38,7 +38,8 @@ async def process_email(message: types.Message, state: FSMContext, config):
             config.api_url,
             email,
             message.from_user.id,
-            message.from_user.username
+            message.from_user.username,
+            config
         )
 
         # Если мы дошли сюда, значит регистрация в API успешна
