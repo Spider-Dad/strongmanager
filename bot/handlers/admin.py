@@ -3,6 +3,7 @@ from aiogram import Dispatcher, types
 from aiogram.dispatcher.filters import IDFilter
 from bot.utils.alerts import ErrorCollector
 from bot.utils.markdown import bold, escape_markdown_v2
+from bot.utils.gs_diagnostics import run_diagnostics
 from datetime import datetime
 from bot.services.sync_service import SyncService
 
@@ -26,7 +27,8 @@ async def cmd_alerts(message: types.Message, config):
     keyboard.add(
         types.InlineKeyboardButton("📊 Последние ошибки", callback_data="alerts_errors"),
         types.InlineKeyboardButton("🔔 Тест алерта", callback_data="alerts_test"),
-        types.InlineKeyboardButton("ℹ️ Статус системы", callback_data="alerts_status")
+        types.InlineKeyboardButton("ℹ️ Статус системы", callback_data="alerts_status"),
+        types.InlineKeyboardButton("🔍 Диагностика GScript", callback_data="alerts_gs_diagnostics")
     )
 
     await message.answer(
@@ -114,6 +116,42 @@ async def callback_alerts_menu(callback_query: types.CallbackQuery):
         reply_markup=keyboard
     )
     await callback_query.answer()
+
+# Обработчик для диагностики Google Script
+async def callback_alerts_gs_diagnostics(callback_query: types.CallbackQuery, config):
+    """Запускает диагностику Google Script"""
+    await callback_query.answer("🔍 Запуск диагностики...")
+
+    try:
+        # Отправляем сообщение о начале диагностики
+        await callback_query.message.edit_text(
+            f"🔍 {bold('Диагностика Google Script')}\n\n"
+            f"⏳ Выполняется диагностика...",
+            reply_markup=types.InlineKeyboardMarkup().add(
+                types.InlineKeyboardButton("◀️ Назад", callback_data="alerts_menu")
+            )
+        )
+
+        # Запускаем диагностику
+        report = await run_diagnostics(config.api_url, config)
+
+        # Отправляем отчет
+        await callback_query.message.edit_text(
+            report,
+            reply_markup=types.InlineKeyboardMarkup().add(
+                types.InlineKeyboardButton("◀️ Назад", callback_data="alerts_menu")
+            )
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка при диагностике Google Script: {e}")
+        await callback_query.message.edit_text(
+            f"❌ {bold('Ошибка диагностики')}\n\n"
+            f"Не удалось выполнить диагностику: `{escape_markdown_v2(str(e))}`",
+            reply_markup=types.InlineKeyboardMarkup().add(
+                types.InlineKeyboardButton("◀️ Назад", callback_data="alerts_menu")
+            )
+        )
 
 # Обработчик команды /sync для управления синхронизацией БД
 async def cmd_sync(message: types.Message, config):
@@ -356,6 +394,13 @@ def register_admin_handlers(dp: Dispatcher, config):
         callback_alerts_menu,
         admin_filter,
         lambda c: c.data == "alerts_menu",
+        state="*"
+    )
+
+    dp.register_callback_query_handler(
+        lambda c: callback_alerts_gs_diagnostics(c, config),
+        admin_filter,
+        lambda c: c.data == "alerts_gs_diagnostics",
         state="*"
     )
 

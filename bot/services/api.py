@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import Dict, List, Optional, Union
 
 import aiohttp
@@ -11,6 +12,42 @@ logger = logging.getLogger(__name__)
 class ApiError(Exception):
     """Ошибка API Google Apps Script"""
     pass
+
+class GoogleScriptError(Exception):
+    """Ошибка Google Apps Script с HTML ответом"""
+    def __init__(self, message: str, html_content: str = None, status_code: int = None):
+        super().__init__(message)
+        self.html_content = html_content
+        self.status_code = status_code
+
+def _extract_error_from_html(html_content: str) -> str:
+    """
+    Извлекает информацию об ошибке из HTML ответа Google Script
+
+    Args:
+        html_content: HTML содержимое ответа
+
+    Returns:
+        Извлеченная информация об ошибке
+    """
+    # Попытка найти стандартные сообщения об ошибках Google Script
+    error_patterns = [
+        r'<title[^>]*>([^<]+)</title>',
+        r'<h1[^>]*>([^<]+)</h1>',
+        r'<div[^>]*class="error"[^>]*>([^<]+)</div>',
+        r'<p[^>]*>([^<]+)</p>',
+        r'<body[^>]*>([^<]+)</body>'
+    ]
+
+    for pattern in error_patterns:
+        match = re.search(pattern, html_content, re.IGNORECASE | re.DOTALL)
+        if match:
+            error_text = match.group(1).strip()
+            if error_text and len(error_text) > 10:  # Минимальная длина для осмысленного сообщения
+                return error_text
+
+    # Если не удалось извлечь конкретную ошибку, возвращаем общую информацию
+    return f"Google Script вернул HTML вместо JSON (длина ответа: {len(html_content)} символов)"
 
 async def _make_api_request_internal(api_url: str, action: str, params: Dict = None, config: Config = None) -> Dict:
     """
@@ -29,13 +66,55 @@ async def _make_api_request_internal(api_url: str, action: str, params: Dict = N
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(api_url, json=params) as response:
+            # Проверяем статус ответа
             if response.status != 200:
-                raise ApiError(f"Неверный статус ответа: {response.status}")
+                # Пытаемся получить текст ответа для диагностики
+                try:
+                    response_text = await response.text()
+                    logger.error(f"HTTP {response.status} от Google Script: {response_text[:500]}")
+                    raise ApiError(f"Неверный статус ответа: {response.status}. Ответ: {response_text[:200]}")
+                except Exception as e:
+                    raise ApiError(f"Неверный статус ответа: {response.status}. Не удалось прочитать ответ: {e}")
 
-            response_data = await response.json()
+            # Проверяем Content-Type
+            content_type = response.headers.get('content-type', '').lower()
+
+            if 'text/html' in content_type:
+                # Google Script вернул HTML вместо JSON - это ошибка
+                html_content = await response.text()
+                error_message = _extract_error_from_html(html_content)
+
+                logger.error(f"Google Script вернул HTML вместо JSON. Content-Type: {content_type}")
+                logger.error(f"HTML ответ (первые 500 символов): {html_content[:500]}")
+
+                raise GoogleScriptError(
+                    f"Google Script вернул HTML вместо JSON: {error_message}",
+                    html_content=html_content,
+                    status_code=response.status
+                )
+
+            elif 'application/json' not in content_type and 'text/plain' not in content_type:
+                # Неожиданный Content-Type
+                logger.warning(f"Неожиданный Content-Type: {content_type}")
+
+            # Пытаемся парсить JSON
+            try:
+                response_data = await response.json()
+            except json.JSONDecodeError as e:
+                # Если не удалось парсить JSON, получаем текст для диагностики
+                response_text = await response.text()
+                logger.error(f"Ошибка парсинга JSON: {e}")
+                logger.error(f"Полученный ответ: {response_text[:500]}")
+                raise ApiError(f"Ошибка парсинга JSON: {e}. Ответ: {response_text[:200]}")
+
+            # Проверяем структуру ответа
+            if not isinstance(response_data, dict):
+                raise ApiError(f"Неожиданный формат ответа: ожидался dict, получен {type(response_data)}")
 
             if not response_data.get("success", False):
-                raise ApiError(f"Ошибка API: {response_data.get('error', 'Неизвестная ошибка')}")
+                error_msg = response_data.get('error', 'Неизвестная ошибка')
+                logger.error(f"Google Script вернул ошибку: {error_msg}")
+                raise ApiError(f"Ошибка API: {error_msg}")
 
             return response_data
 
@@ -65,7 +144,7 @@ async def make_api_request(api_url: str, action: str, params: Dict = None, confi
         max_retries=max_retries,
         base_delay=base_delay,
         max_delay=max_delay,
-        retry_exceptions=[aiohttp.ClientError, aiohttp.ServerTimeoutError, aiohttp.ClientOSError],
+        retry_exceptions=[aiohttp.ClientError, aiohttp.ServerTimeoutError, aiohttp.ClientOSError, GoogleScriptError],
         circuit_breaker=api_circuit_breaker
     )
 

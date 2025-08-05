@@ -7,7 +7,7 @@ from aiogram import Bot
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.services.api import get_new_notifications, update_notification_status
+from bot.services.api import get_new_notifications, update_notification_status, GoogleScriptError, ApiError
 from bot.services.database import get_session, Mentor, Notification
 from bot.config import Config
 from bot.utils.markdown import escape_markdown_v2, format_notification, format_student_action, convert_pseudo_markdown_to_v2
@@ -38,8 +38,15 @@ async def check_new_notifications(bot: Bot, config: Config):
             # Небольшая задержка между отправками для избежания флуда
             await asyncio.sleep(0.5)
 
+    except GoogleScriptError as e:
+        logger.error(f"Ошибка Google Script при проверке новых уведомлений: {e}")
+        if e.html_content:
+            logger.error(f"HTML ответ от Google Script: {e.html_content[:500]}")
+    except ApiError as e:
+        logger.error(f"Ошибка API при проверке новых уведомлений: {e}")
     except Exception as e:
-        logger.error(f"Ошибка при проверке новых уведомлений: {e}")
+        logger.error(f"Неожиданная ошибка при проверке новых уведомлений: {e}")
+        logger.exception("Полный traceback:")
 
 async def process_notification(bot: Bot, config: Config, notification: Dict):
     """
@@ -84,19 +91,31 @@ async def process_notification(bot: Bot, config: Config, notification: Dict):
 
         logger.info(f"Уведомление {notification_id} успешно отправлено ментору {telegram_id}")
 
+    except GoogleScriptError as e:
+        logger.error(f"Ошибка Google Script при отправке уведомления {notification_id}: {e}")
+        if e.html_content:
+            logger.error(f"HTML ответ от Google Script: {e.html_content[:500]}")
+    except ApiError as e:
+        logger.error(f"Ошибка API при отправке уведомления {notification_id}: {e}")
     except Exception as e:
-        logger.error(f"Ошибка при отправке уведомления {notification_id}: {e}")
+        logger.error(f"Неожиданная ошибка при отправке уведомления {notification_id}: {e}")
+        logger.exception("Полный traceback:")
 
-        # Обновление статуса на "failed"
-        try:
-            await update_notification_status(config.api_url, notification_id, "failed", config=config)
+    # Обновление статуса на "failed" в случае любой ошибки
+    try:
+        await update_notification_status(config.api_url, notification_id, "failed", config=config)
 
-            # Сохранение в локальной БД
-            async for session in get_session():
-                await save_notification_to_db(session, notification, "failed")
+        # Сохранение в локальной БД
+        async for session in get_session():
+            await save_notification_to_db(session, notification, "failed")
 
-        except Exception as e2:
-            logger.error(f"Не удалось обновить статус уведомления {notification_id}: {e2}")
+    except GoogleScriptError as e2:
+        logger.error(f"Ошибка Google Script при обновлении статуса уведомления {notification_id}: {e2}")
+    except ApiError as e2:
+        logger.error(f"Ошибка API при обновлении статуса уведомления {notification_id}: {e2}")
+    except Exception as e2:
+        logger.error(f"Неожиданная ошибка при обновлении статуса уведомления {notification_id}: {e2}")
+        logger.exception("Полный traceback при обновлении статуса:")
 
 async def save_notification_to_db(session: AsyncSession, notification: Dict, status: str, message_id: int = None):
     """
