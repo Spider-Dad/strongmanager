@@ -17,7 +17,7 @@ from bot.config import Config
 from bot.handlers import register_all_handlers
 from bot.middlewares import setup_middlewares
 from bot.services.database import setup_database
-from bot.utils.logger import setup_logger, setup_logger_with_alerts
+from bot.utils.logger import setup_logger_with_alerts
 from bot.utils.alerts import AlertHandler
 from bot.services.sync_service import SyncService
 
@@ -27,15 +27,11 @@ time.sleep(5)
 # Загрузка переменных окружения
 load_dotenv()
 
-# Настройка логирования (базовая, без алертов пока)
-setup_logger()
-logger = logging.getLogger(__name__)
-
-# Глобальная переменная для хранения обработчика алертов
+# Глобальные переменные для хранения обработчиков
 alert_handler: Optional[AlertHandler] = None
-
-# Глобальная переменная для хранения сервиса синхронизации
+db_log_handler = None
 sync_service: Optional[SyncService] = None
+logger = None
 
 # Создание директорий для данных
 def create_data_directories():
@@ -55,7 +51,11 @@ async def on_startup(dp):
     logger.info("Бот запущен")
 
 async def main():
-    global alert_handler, sync_service
+    global alert_handler, db_log_handler, sync_service, logger
+
+    # Настройка логирования
+    logger = logging.getLogger(__name__)
+
     try:
         # Создание директорий
         base_dir, db_dir = create_data_directories()
@@ -74,9 +74,10 @@ async def main():
         # Настройка системы алертов
         if config.admin_ids:
             logger.info(f"Настройка системы алертов для администраторов: {config.admin_ids}")
-            alert_handler = setup_logger_with_alerts(bot, config.admin_ids)
+            alert_handler, db_log_handler = setup_logger_with_alerts(bot, config.admin_ids)
         else:
             logger.warning("Список администраторов не настроен. Система алертов отключена.")
+            _, db_log_handler = setup_logger_with_alerts()
 
         # Настройка middlewares
         setup_middlewares(dp, config)
@@ -107,6 +108,16 @@ async def main():
             args=[bot, config]
         )
 
+        # Добавление задачи очистки старых логов
+        cleanup_interval_hours = int(os.getenv("LOG_CLEANUP_INTERVAL_HOURS", "24"))
+        from bot.utils.logger import cleanup_old_logs
+        scheduler.add_job(
+            cleanup_old_logs,
+            'interval',
+            hours=cleanup_interval_hours,
+            id='cleanup_old_logs'
+        )
+
         # Обработчик сигналов для корректного завершения
         async def on_shutdown(signal, frame):
             logger.info("Завершение работы бота...")
@@ -118,6 +129,10 @@ async def main():
             # Остановка обработчика алертов
             if alert_handler:
                 alert_handler.stop()
+
+            # Остановка обработчика логов БД
+            if db_log_handler:
+                db_log_handler.stop()
 
             # Остановка планировщика
             scheduler.shutdown(wait=False)

@@ -107,6 +107,33 @@ class DebugLog(Base):
     event = Column(String(255), nullable=True)  # Название функции/события
     data = Column(Text, nullable=True)          # Данные события
 
+# Модель для хранения логов приложения
+class ApplicationLog(Base):
+    __tablename__ = "application_logs"
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, nullable=False, server_default=func.now())
+    level = Column(String(20), nullable=False)  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    logger_name = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    module = Column(String(255), nullable=True)
+    function = Column(String(255), nullable=True)
+    line = Column(Integer, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+# Модель для хранения ошибок приложения (для быстрого поиска)
+class ErrorLog(Base):
+    __tablename__ = "error_logs"
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, nullable=False, server_default=func.now())
+    level = Column(String(20), nullable=False)  # WARNING, ERROR, CRITICAL
+    logger_name = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    traceback = Column(Text, nullable=True)
+    module = Column(String(255), nullable=True)
+    function = Column(String(255), nullable=True)
+    line = Column(Integer, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
 # Асинхронный движок базы данных
 async_engine = None
 async_session = None
@@ -129,6 +156,7 @@ async def setup_database(config):
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    print(f"setup_database: async_session установлен как {async_session}")
     logger.info(f"База данных инициализирована: {config.db_path}")
 
 # Функция для получения сессии БД
