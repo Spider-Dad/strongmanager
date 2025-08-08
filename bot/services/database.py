@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, create_engine, text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, create_engine, text, event
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -145,7 +145,36 @@ async def setup_database(config):
     config.data_dir.mkdir(parents=True, exist_ok=True)
 
     # Создание асинхронного движка
-    async_engine = create_async_engine(config.db_url, echo=False)
+    # ВАЖНО: для SQLite настраиваем таймаут блокировок и WAL режим
+    async_engine = create_async_engine(
+        config.db_url,
+        echo=False,
+        connect_args={
+            # Время ожидания освобождения блокировки файла БД (мс)
+            "timeout": 30.0,
+        },
+        pool_pre_ping=True,
+    )
+
+    # Настраиваем PRAGMA для всех подключений (через sync_engine)
+    @event.listens_for(async_engine.sync_engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record):
+        try:
+            # Включаем WAL для повышения конкурентности
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            # Увеличиваем busy_timeout, чтобы не падать с "database is locked"
+            cursor.execute("PRAGMA busy_timeout=30000")  # 30 секунд
+            cursor.close()
+        except Exception:
+            # Не прерываем запуск при невозможности применить PRAGMA
+            pass
+
+    # Начинаем транзакции как BEGIN IMMEDIATE для быстрого получения write-lock
+    @event.listens_for(async_engine.sync_engine, "begin")
+    def _do_begin(conn):
+        conn.exec_driver_sql("BEGIN IMMEDIATE")
 
     # Создание асинхронной сессии
     async_session = sessionmaker(
