@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, create_engine
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -158,6 +158,16 @@ async def setup_database(config):
 
     print(f"setup_database: async_session установлен как {async_session}")
     logger.info(f"База данных инициализирована: {config.db_path}")
+
+    # Проверяем доступность базы данных
+    try:
+        async with async_session() as session:
+            # Пробуем выполнить простой запрос
+            await session.execute(text("SELECT 1"))
+            logger.info("Проверка подключения к БД успешна")
+    except Exception as e:
+        logger.error(f"Ошибка при проверке подключения к БД: {e}")
+        raise
 
 # Функция для получения сессии БД
 async def get_session():
