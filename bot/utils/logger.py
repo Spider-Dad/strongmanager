@@ -9,7 +9,7 @@ from aiogram import Bot
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.services.database import ApplicationLog, ErrorLog, async_session
+import bot.services.database as db
 
 class DatabaseHandler(logging.Handler):
     """Обработчик для записи логов в базу данных"""
@@ -55,7 +55,7 @@ class DatabaseHandler(logging.Handler):
         while True:
             try:
                 # Проверяем, что async_session инициализирован
-                if async_session is None:
+                if db.async_session is None:
                     await asyncio.sleep(5)
                     continue
 
@@ -78,10 +78,10 @@ class DatabaseHandler(logging.Handler):
 
                 if logs_to_write:
                     try:
-                        async with async_session() as session:
+                        async with db.async_session() as session:
                             # Записываем все логи
                             for log_data in logs_to_write:
-                                app_log = ApplicationLog(
+                                app_log = db.ApplicationLog(
                                     timestamp=log_data['timestamp'],
                                     level=log_data['level'],
                                     logger_name=log_data['logger_name'],
@@ -94,7 +94,7 @@ class DatabaseHandler(logging.Handler):
 
                             # Записываем ошибки отдельно
                             for log_data in errors_to_write:
-                                error_log = ErrorLog(
+                                error_log = db.ErrorLog(
                                     timestamp=log_data['timestamp'],
                                     level=log_data['level'],
                                     logger_name=log_data['logger_name'],
@@ -139,6 +139,8 @@ class DailyRotatingFileHandler(logging.FileHandler):
             date=self.current_date.strftime('%Y%m%d')
         )
         super().__init__(current_filename, 'a', encoding=encoding)
+        # Применяем уровень к файловому обработчику, чтобы он фильтровал по LOG_LEVEL/ERROR_LOG_LEVEL
+        self.setLevel(level)
 
     def emit(self, record):
         """Проверяет, нужно ли сменить файл"""
@@ -217,6 +219,7 @@ def setup_logging():
     logging.getLogger("aiogram").setLevel(logging.INFO)
     logging.getLogger("aiohttp").setLevel(logging.INFO)
     logging.getLogger("apscheduler").setLevel(logging.INFO)
+    logging.getLogger("aiosqlite").setLevel(logging.INFO)
 
     return db_handler
 
@@ -271,16 +274,16 @@ async def cleanup_old_logs():
         # Очистка старых записей из БД
         cutoff_timestamp = datetime.now() - timedelta(days=db_log_retention_days)
 
-        async with async_session() as session:
+        async with db.async_session() as session:
             # Удаляем старые записи из application_logs
             result = await session.execute(
-                delete(ApplicationLog).where(ApplicationLog.timestamp < cutoff_timestamp)
+                delete(db.ApplicationLog).where(db.ApplicationLog.timestamp < cutoff_timestamp)
             )
             app_logs_deleted = result.rowcount
 
             # Удаляем старые записи из error_logs
             result = await session.execute(
-                delete(ErrorLog).where(ErrorLog.timestamp < cutoff_timestamp)
+                delete(db.ErrorLog).where(db.ErrorLog.timestamp < cutoff_timestamp)
             )
             error_logs_deleted = result.rowcount
 
