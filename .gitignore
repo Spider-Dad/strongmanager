@@ -61,6 +61,7 @@ test_admin_commands.py
 test_bot_fix.py
 test_gs_error_handling.py
 test_logging_system.py
+tests/
 
 # Специфичные файлы операционной системы
 .DS_Store
