@@ -33,19 +33,7 @@ db_log_handler = None
 sync_service: Optional[SyncService] = None
 logger = None
 
-# Создание директорий для данных
-def create_data_directories():
-    env = os.getenv("SERVER_ENV", "dev")
-    if env == "prod":
-        base_dir = Path("/data")
-    else:
-        base_dir = Path.cwd() / "data"
-
-    # Создание директории для базы данных
-    db_dir = base_dir / "database"
-    db_dir.mkdir(parents=True, exist_ok=True)
-
-    return base_dir, db_dir
+# Создание директорий для данных перенесено на конфигурацию (чтобы dev не зависел от CWD)
 
 async def on_startup(dp):
     logger.info("Бот запущен")
@@ -57,11 +45,12 @@ async def main():
     logger = logging.getLogger(__name__)
 
     try:
-        # Создание директорий
-        base_dir, db_dir = create_data_directories()
-
         # Инициализация конфигурации
         config = Config()
+
+        # Создание директорий данных на основе конфигурации
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        (config.data_dir / "database").mkdir(parents=True, exist_ok=True)
 
         # Инициализация базы данных
         await setup_database(config)

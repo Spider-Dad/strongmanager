@@ -22,7 +22,9 @@ class Config:
         if self.env == "prod":
             self.data_dir = Path("/data")
         else:
-            self.data_dir = Path.cwd() / "data"
+            # Корень проекта (папка getcourse_bot), независимо от текущей рабочей директории
+            app_root = Path(__file__).resolve().parents[1]
+            self.data_dir = app_root / "data"
 
         self.db_path = self.data_dir / "getcourse_bot.db"
 
@@ -33,10 +35,18 @@ class Config:
         # Если путь не указан явно, используем путь в папке data
         credentials_path = os.getenv("GOOGLE_CREDENTIALS_PATH")
         if credentials_path:
-            # Если указан путь, используем его как есть
-            self.google_credentials_path = credentials_path
+            # Для prod оставляем прежнее поведение
+            if self.env == "prod":
+                self.google_credentials_path = credentials_path
+            else:
+                # Для dev: относительные пути интерпретируем относительно data_dir
+                p = Path(credentials_path)
+                if p.is_absolute():
+                    self.google_credentials_path = str(p)
+                else:
+                    self.google_credentials_path = str(self.data_dir / p.name)
         else:
-            # Если не указан, используем файл в папке data
+            # Если не указан, используем файл в папке data (prod: /data)
             if self.env == "prod":
                 self.google_credentials_path = "/data/central-insight-409215-196210033b14.json"
             else:

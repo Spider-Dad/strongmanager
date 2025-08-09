@@ -162,7 +162,9 @@ def setup_logging():
     if env == "prod":
         log_dir = Path("/data/logs")
     else:
-        log_dir = Path.cwd() / "data" / "logs"
+        # Логи должны храниться в папке проекта (getcourse_bot), а не в текущем CWD
+        app_root = Path(__file__).resolve().parents[1]
+        log_dir = app_root / "data" / "logs"
 
     # Создание директории, если не существует
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -254,7 +256,8 @@ async def cleanup_old_logs():
         if env == "prod":
             log_dir = Path("/data/logs")
         else:
-            log_dir = Path.cwd() / "data" / "logs"
+            app_root = Path(__file__).resolve().parents[1]
+            log_dir = app_root / "data" / "logs"
 
         if log_dir.exists():
             cutoff_date = datetime.now() - timedelta(days=log_retention_days)
