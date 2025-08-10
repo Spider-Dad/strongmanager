@@ -43,6 +43,18 @@ class SyncService:
         self.retry_base_delay = float(os.getenv("SYNC_RETRY_BASE_DELAY", "2.0"))
         self.retry_max_delay = float(os.getenv("SYNC_RETRY_MAX_DELAY", "120.0"))
 
+        # Список листов для чтения (через окружение SYNC_SHEETS)
+        self.default_sheet_names = [
+            'mentors', 'students', 'mapping', 'trainings', 'lessons',
+            'logs', 'notifications', 'webhook_raw_log', 'debug_log',
+            'progress_config', 'progress_overrides'
+        ]
+        env_sheets = os.getenv("SYNC_SHEETS")
+        if env_sheets:
+            self.sheet_names_to_read = [name.strip() for name in env_sheets.split(',') if name.strip()]
+        else:
+            self.sheet_names_to_read = list(self.default_sheet_names)
+
     async def start_auto_sync(self):
         """Запускает автоматическую синхронизацию по расписанию"""
         if self.sync_interval <= 0:
@@ -127,24 +139,46 @@ class SyncService:
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(self.spreadsheet_id)
 
-        # Чтение всех листов
-        logger.info("Начало чтения данных из Google Sheets")
-        sheets_data = {
-            'mentors': sh.worksheet('mentors').get_all_records(),
-            'students': sh.worksheet('students').get_all_records(),
-            'mapping': sh.worksheet('mapping').get_all_records(),
-            'trainings': sh.worksheet('trainings').get_all_records(),
-            'lessons': sh.worksheet('lessons').get_all_records(),
-            'logs': sh.worksheet('logs').get_all_records(),
-            'notifications': sh.worksheet('notifications').get_all_records(),
-            'webhook_raw_log': sh.worksheet('webhook_raw_log').get_all_records(),
-            'debug_log': sh.worksheet('debug_log').get_all_records(),
-            # Новые листы табеля
-            'progress_config': sh.worksheet('progress_config').get_all_records(),
-            'progress_overrides': sh.worksheet('progress_overrides').get_all_records(),
-        }
+        # Чтение всех листов одним batch-запросом
+        logger.info("Начало чтения данных из Google Sheets (batchGet)")
 
-        logger.info(f"Успешно прочитано {sum(len(data) for data in sheets_data.values())} записей")
+        # Формируем диапазоны A1 для каждого листа. Диапазон A:ZZZ, чтобы захватить все столбцы.
+        ranges = [f"{name}!A:ZZZ" for name in self.sheet_names_to_read]
+
+        # Выполняем один запрос values.batchGet
+        batch_result = sh.values_batch_get(ranges)
+        value_ranges = batch_result.get('valueRanges', []) if isinstance(batch_result, dict) else []
+
+        def _extract_sheet_name(range_str: str) -> str:
+            # Пример: "mentors!A:ZZZ" или "'debug_log'!A:ZZZ"
+            if not range_str:
+                return ""
+            sheet_part = range_str.split('!')[0]
+            # Снимаем кавычки, если они есть
+            return sheet_part.strip("'\"")
+
+        sheets_data: Dict[str, Any] = {name: [] for name in self.sheet_names_to_read}
+
+        for vr in value_ranges:
+            range_str = vr.get('range', '')
+            sheet_name = _extract_sheet_name(range_str)
+            rows = vr.get('values', []) or []
+            if not rows:
+                sheets_data[sheet_name] = []
+                continue
+
+            headers = [str(h).strip() for h in rows[0]] if rows else []
+            records = []
+            for row in rows[1:]:
+                # Дополняем недостающие значения пустыми значениями, чтобы длина совпадала с заголовками
+                padded = list(row) + [None] * (len(headers) - len(row))
+                record = {headers[i]: padded[i] for i in range(len(headers))}
+                records.append(record)
+            sheets_data[sheet_name] = records
+
+        # Для листов, которые не пришли (например, их нет в таблице), оставим пустые списки
+        total = sum(len(data) for data in sheets_data.values())
+        logger.info(f"Успешно прочитано {total} записей из {len(self.sheet_names_to_read)} листов (batchGet)")
         return sheets_data
 
     async def _read_google_sheets_with_retry(self) -> Dict[str, Any]:
@@ -188,7 +222,7 @@ class SyncService:
                 )
 
                 # Mentors
-                for row in sheets_data['mentors']:
+                for row in sheets_data.get('mentors', []):
                     mentor = Mentor(
                         id=self.get_int(row.get('mentorId') or row.get('id')),
                         email=row.get('email'),
@@ -198,10 +232,10 @@ class SyncService:
                         username=row.get('telegramUsername')
                     )
                     session.add(mentor)
-                sync_result['records_synced']['mentors'] = len(sheets_data['mentors'])
+                sync_result['records_synced']['mentors'] = len(sheets_data.get('mentors', []))
 
                 # Students
-                for row in sheets_data['students']:
+                for row in sheets_data.get('students', []):
                     student = Student(
                         id=self.get_int(row.get('studentId') or row.get('id')),
                         user_email=row.get('userEmail'),
@@ -209,10 +243,10 @@ class SyncService:
                         last_name=row.get('userLastName')
                     )
                     session.add(student)
-                sync_result['records_synced']['students'] = len(sheets_data['students'])
+                sync_result['records_synced']['students'] = len(sheets_data.get('students', []))
 
                 # Mapping
-                for row in sheets_data['mapping']:
+                for row in sheets_data.get('mapping', []):
                     mapping = Mapping(
                         id=self.get_int(row.get('id')),
                         student_id=self.get_int(row.get('studentId')),
@@ -221,10 +255,10 @@ class SyncService:
                         assigned_date=self.parse_date(row.get('assignedDate'))
                     )
                     session.add(mapping)
-                sync_result['records_synced']['mapping'] = len(sheets_data['mapping'])
+                sync_result['records_synced']['mapping'] = len(sheets_data.get('mapping', []))
 
                 # Trainings
-                for row in sheets_data['trainings']:
+                for row in sheets_data.get('trainings', []):
                     training = Training(
                         id=self.get_int(row.get('trainingId') or row.get('id')),
                         title=row.get('trainingTitle') or row.get('title'),
@@ -232,10 +266,10 @@ class SyncService:
                         progress_table_id=row.get('progressTableId')
                     )
                     session.add(training)
-                sync_result['records_synced']['trainings'] = len(sheets_data['trainings'])
+                sync_result['records_synced']['trainings'] = len(sheets_data.get('trainings', []))
 
                 # Lessons
-                for row in sheets_data['lessons']:
+                for row in sheets_data.get('lessons', []):
                     lesson = Lesson(
                         id=self.get_int(row.get('lessonId') or row.get('id')),
                         training_id=self.get_int(row.get('trainingId')),
@@ -246,10 +280,10 @@ class SyncService:
                         deadline_date=self.parse_date(row.get('deadlineDate'))
                     )
                     session.add(lesson)
-                sync_result['records_synced']['lessons'] = len(sheets_data['lessons'])
+                sync_result['records_synced']['lessons'] = len(sheets_data.get('lessons', []))
 
                 # Logs
-                for row in sheets_data['logs']:
+                for row in sheets_data.get('logs', []):
                     log = Log(
                         date=self.parse_date(row.get('date')),
                         user_id=self.get_int(row.get('userId')),
@@ -268,10 +302,10 @@ class SyncService:
                         webhook_date=self.parse_date(row.get('webhookDate'))
                     )
                     session.add(log)
-                sync_result['records_synced']['logs'] = len(sheets_data['logs'])
+                sync_result['records_synced']['logs'] = len(sheets_data.get('logs', []))
 
                 # Notifications
-                for row in sheets_data['notifications']:
+                for row in sheets_data.get('notifications', []):
                     notification = Notification(
                         mentor_id=self.get_int(row.get('ID получателя') or row.get('mentor_id')),
                         type=row.get('Тип уведомления') or row.get('type'),
@@ -282,29 +316,29 @@ class SyncService:
                         telegram_message_id=str(row.get('TelegramMessageId') or row.get('telegram_message_id'))
                     )
                     session.add(notification)
-                sync_result['records_synced']['notifications'] = len(sheets_data['notifications'])
+                sync_result['records_synced']['notifications'] = len(sheets_data.get('notifications', []))
 
                 # WebhookRawLog
-                for row in sheets_data['webhook_raw_log']:
+                for row in sheets_data.get('webhook_raw_log', []):
                     webhook = WebhookRawLog(
                         date=self.parse_date(row.get('Дата') or row.get('date')),
                         raw_data=row.get('RawData') or row.get('raw_data')
                     )
                     session.add(webhook)
-                sync_result['records_synced']['webhook_raw_log'] = len(sheets_data['webhook_raw_log'])
+                sync_result['records_synced']['webhook_raw_log'] = len(sheets_data.get('webhook_raw_log', []))
 
                 # DebugLog
-                for row in sheets_data['debug_log']:
+                for row in sheets_data.get('debug_log', []):
                     debug = DebugLog(
                         date=self.parse_date(row.get('Дата') or row.get('date')),
                         event=row.get('Событие') or row.get('event'),
                         data=row.get('Данные') or row.get('data')
                     )
                     session.add(debug)
-                sync_result['records_synced']['debug_log'] = len(sheets_data['debug_log'])
+                sync_result['records_synced']['debug_log'] = len(sheets_data.get('debug_log', []))
 
                 # ProgressConfig (новое)
-                for row in sheets_data['progress_config']:
+                for row in sheets_data.get('progress_config', []):
                     pc = ProgressConfig(
                         id=self.get_int(row.get('id')),
                         training_id=self.get_int(row.get('trainingId')),
@@ -315,10 +349,10 @@ class SyncService:
                         visibility=row.get('visibility'),
                     )
                     session.add(pc)
-                sync_result['records_synced']['progress_config'] = len(sheets_data['progress_config'])
+                sync_result['records_synced']['progress_config'] = len(sheets_data.get('progress_config', []))
 
                 # ProgressOverride (новое)
-                for row in sheets_data['progress_overrides']:
+                for row in sheets_data.get('progress_overrides', []):
                     po = ProgressOverride(
                         id=self.get_int(row.get('id')),
                         student_id=self.get_int(row.get('studentId')),
@@ -328,7 +362,7 @@ class SyncService:
                         expires_at=self.parse_date(row.get('expiresAt')),
                     )
                     session.add(po)
-                sync_result['records_synced']['progress_overrides'] = len(sheets_data['progress_overrides'])
+                sync_result['records_synced']['progress_overrides'] = len(sheets_data.get('progress_overrides', []))
 
                 await session.commit()
 
