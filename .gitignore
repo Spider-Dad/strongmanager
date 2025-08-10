@@ -36,6 +36,7 @@ wheels/
 venv/
 env/
 ENV/
+.venv
 
 # Файлы среды разработки
 .idea/

@@ -13,14 +13,14 @@ def register_all_handlers(dp, config):
         config: Конфигурация бота
     """
     # Порядок регистрации важен - обработчики регистрируются в порядке добавления
-    # Сначала регистрируем команды администратора (они должны быть первыми)
+    # 1) Сначала админские — чтобы их не перехватил универсальный хендлер
     register_admin_handlers(dp, config)
-    # Затем регистрируем общие команды (включая перехват админских команд для неадминов)
-    register_common_handlers(dp, config)
-    # Затем обработчики авторизации
-    register_auth_handlers(dp, config)
-    # Регистрируем хендлеры табеля при включённом фича-флаге
+    # 2) Затем — хендлеры табеля (новые команды), чтобы их не перехватывал unknown из common
     if getattr(config, 'gradebook_enabled', False):
         register_gradebook_handlers(dp, config)
-    # И в конце - обработчики уведомлений
+    # 3) Общие команды и unknown — должны регистрироваться ПОСЛЕ специфичных
+    register_common_handlers(dp, config)
+    # 4) Авторизация — без влияния на порядок команд
+    register_auth_handlers(dp, config)
+    # 5) Уведомления — в конце
     register_notification_handlers(dp, config)
