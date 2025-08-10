@@ -19,7 +19,8 @@ def register_all_handlers(dp, config):
     register_common_handlers(dp, config)
     # Затем обработчики авторизации
     register_auth_handlers(dp, config)
-    # Регистрируем хендлеры табеля (не конфликтуют с админскими)
-    register_gradebook_handlers(dp, config)
+    # Регистрируем хендлеры табеля при включённом фича-флаге
+    if getattr(config, 'gradebook_enabled', False):
+        register_gradebook_handlers(dp, config)
     # И в конце - обработчики уведомлений
     register_notification_handlers(dp, config)

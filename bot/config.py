@@ -60,3 +60,7 @@ class Config:
         self.max_retries = int(os.getenv("MAX_RETRIES", 3))
         self.retry_base_delay = float(os.getenv("RETRY_BASE_DELAY", 1.0))
         self.retry_max_delay = float(os.getenv("RETRY_MAX_DELAY", 60.0))
+
+        # Фича-флаги
+        # Включение функционала табеля (по умолчанию выключен для безопасного релиза)
+        self.gradebook_enabled = os.getenv("GRADEBOOK_ENABLED", "false").lower() == "true"
