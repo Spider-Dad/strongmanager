@@ -102,7 +102,7 @@ class SyncService:
         Читает данные из Google Sheets с retry логикой
         """
         logger.info("Подключение к Google Sheets API")
-        
+
         # Проверяем существование файла учетных данных
         if not os.path.exists(self.credentials_file):
             error_msg = f"Файл учетных данных не найден: {self.credentials_file}"
@@ -138,9 +138,12 @@ class SyncService:
             'logs': sh.worksheet('logs').get_all_records(),
             'notifications': sh.worksheet('notifications').get_all_records(),
             'webhook_raw_log': sh.worksheet('webhook_raw_log').get_all_records(),
-            'debug_log': sh.worksheet('debug_log').get_all_records()
+            'debug_log': sh.worksheet('debug_log').get_all_records(),
+            # Новые листы табеля
+            'progress_config': sh.worksheet('progress_config').get_all_records(),
+            'progress_overrides': sh.worksheet('progress_overrides').get_all_records(),
         }
-        
+
         logger.info(f"Успешно прочитано {sum(len(data) for data in sheets_data.values())} записей")
         return sheets_data
 
@@ -180,7 +183,8 @@ class SyncService:
                 # Импорт данных по таблицам
                 from bot.services.database import (
                     Mentor, Student, Mapping, Training, Lesson,
-                    Log, Notification, WebhookRawLog, DebugLog
+                    Log, Notification, WebhookRawLog, DebugLog,
+                    ProgressConfig, ProgressOverride
                 )
 
                 # Mentors
@@ -298,6 +302,33 @@ class SyncService:
                     )
                     session.add(debug)
                 sync_result['records_synced']['debug_log'] = len(sheets_data['debug_log'])
+
+                # ProgressConfig (новое)
+                for row in sheets_data['progress_config']:
+                    pc = ProgressConfig(
+                        id=self.get_int(row.get('id')),
+                        training_id=self.get_int(row.get('trainingId')),
+                        lesson_id=self.get_int(row.get('lessonId')),
+                        deadline_override=self.parse_date(row.get('deadlineOverride')),
+                        weight=self.get_int(row.get('weight')),
+                        tags=row.get('tags'),
+                        visibility=row.get('visibility'),
+                    )
+                    session.add(pc)
+                sync_result['records_synced']['progress_config'] = len(sheets_data['progress_config'])
+
+                # ProgressOverride (новое)
+                for row in sheets_data['progress_overrides']:
+                    po = ProgressOverride(
+                        id=self.get_int(row.get('id')),
+                        student_id=self.get_int(row.get('studentId')),
+                        lesson_id=self.get_int(row.get('lessonId')),
+                        status_override=row.get('statusOverride'),
+                        comment=row.get('comment'),
+                        expires_at=self.parse_date(row.get('expiresAt')),
+                    )
+                    session.add(po)
+                sync_result['records_synced']['progress_overrides'] = len(sheets_data['progress_overrides'])
 
                 await session.commit()
 
