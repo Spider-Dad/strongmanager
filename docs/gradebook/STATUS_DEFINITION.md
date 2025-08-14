@@ -34,3 +34,17 @@
 - Веса уроков (`progress_config.weight`) для приоритезации при сортировке отстающих.
 - Тэги уроков (`progress_config.tags`) для тематической фильтрации.
 - Видимость урока (`progress_config.visibility`) для исключения из табеля.
+
+Состояния уроков и тренингов
+- Урок:
+  - not_started: `opening_date > now`
+  - active: `opening_date <= now < deadline_date`
+  - completed: `deadline_date <= now`
+- Тренинг (по множеству уроков):
+  - not_started: все уроки not_started
+  - completed: все уроки completed
+  - active: иначе
+
+Правила отображения по умолчанию
+- В /progress и /progress_admin агрегаты считаются по активным и завершённым урокам/тренингам. not_started исключаются.
+- В списках выбора показываем статусы, но блокируем выбор not_started (alert без применения фильтра).

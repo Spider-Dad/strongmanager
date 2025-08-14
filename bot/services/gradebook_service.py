@@ -87,6 +87,35 @@ async def _fetch_lessons_for_trainings(session: AsyncSession, training_ids: Iter
     return result.scalars().all()
 
 
+def get_lesson_state(lesson: Lesson, now: Optional[datetime] = None) -> str:
+    """Возвращает состояние урока: not_started | active | completed."""
+    current_time = now or datetime.now()
+    if lesson.opening_date and lesson.opening_date > current_time:
+        return "not_started"
+    if lesson.deadline_date and lesson.deadline_date <= current_time:
+        return "completed"
+    return "active"
+
+
+def get_training_state(lessons: List[Lesson], now: Optional[datetime] = None) -> str:
+    """Состояние тренинга по его урокам."""
+    if not lessons:
+        return "not_started"
+    current_time = now or datetime.now()
+    all_not_started = True
+    all_completed = True
+    for l in lessons:
+        if not (l.opening_date and l.opening_date > current_time):
+            all_not_started = False
+        if not (l.deadline_date and l.deadline_date <= current_time):
+            all_completed = False
+    if all_not_started:
+        return "not_started"
+    if all_completed:
+        return "completed"
+    return "active"
+
+
 async def _fetch_progress_config(session: AsyncSession, training_ids: Iterable[int], lesson_ids: Iterable[int]) -> Tuple[Dict[int, ProgressConfig], Dict[int, ProgressConfig]]:
     """Возвращает два словаря: конфигурации по урокам и по тренингам.
     lesson_config[lesson_id] = ProgressConfig; training_config[training_id] = ProgressConfig
@@ -178,6 +207,7 @@ async def build_mentor_overview(
     training_id: Optional[int] = None,
     lesson_id: Optional[int] = None,
     status_filter: Optional[str] = None,
+    include_not_started: bool = False,
 ) -> Dict[str, object]:
     """Возвращает агрегированную сводку для наставника по его студентам.
     Фильтры: training_id, lesson_id, status_filter (один из STATUS_*).
@@ -211,6 +241,7 @@ async def build_mentor_overview(
     now = datetime.now()
 
     items: List[LessonStatus] = []
+    lessons_filtered: List[Lesson] = []
     for sid in students.keys():
         for lesson in lessons:
             # Пропускаем уроки скрытые видимостью
@@ -221,6 +252,10 @@ async def build_mentor_overview(
 
             deadline = _resolve_deadline(lesson, l_cfg, t_cfg)
             answer_date = earliest.get((sid, lesson.id))
+            # Исключаем уроки в состоянии not_started, если не требуется включать
+            if not include_not_started and get_lesson_state(lesson, now) == "not_started":
+                continue
+
             status = categorize_status(deadline, answer_date, now)
 
             ov = overrides.get((sid, lesson.id))
@@ -231,6 +266,7 @@ async def build_mentor_overview(
                 continue
 
             items.append(LessonStatus(student_id=sid, lesson_id=lesson.id, status=status, deadline=deadline, answer_date=answer_date))
+            lessons_filtered.append(lesson)
 
     # Агрегации
     counts = Counter(ls.status for ls in items)
@@ -241,12 +277,31 @@ async def build_mentor_overview(
         by_lesson[ls.lesson_id][ls.status] += 1
         by_student[ls.student_id][ls.status] += 1
 
+    # Определяем состояния тренинга/урока для заголовков
+    training_state = None
+    lesson_state = None
+    if training_id is not None:
+        training_lessons = [l for l in lessons if l.training_id == training_id]
+        training_state = get_training_state(training_lessons, now)
+    if lesson_id is not None and lessons:
+        lesson_obj = next((l for l in lessons if l.id == lesson_id), None)
+        if lesson_obj:
+            lesson_state = get_lesson_state(lesson_obj, now)
+
     return {
         "total_students": len(students),
         "counts": dict(counts),
         "by_lesson": {lid: dict(c) for lid, c in by_lesson.items()},
         "by_student": {sid: dict(c) for sid, c in by_student.items()},
         "items": [ls.__dict__ for ls in items],
+        "students": {sid: {"first_name": students[sid].first_name, "last_name": students[sid].last_name} for sid in students},
+        "applied_filters": {
+            "training_id": training_id,
+            "lesson_id": lesson_id,
+            "status": status_filter,
+            "training_state": training_state,
+            "lesson_state": lesson_state,
+        },
     }
 
 
@@ -254,6 +309,7 @@ async def build_admin_overview(
     session: AsyncSession,
     training_id: Optional[int] = None,
     lesson_id: Optional[int] = None,
+    include_not_started: bool = False,
 ) -> Dict[str, object]:
     """Возвращает агрегаты по наставникам и урокам для администратора."""
     # Все наставники
@@ -272,6 +328,7 @@ async def build_admin_overview(
             mentor_id=m.id,
             training_id=training_id,
             lesson_id=lesson_id,
+            include_not_started=include_not_started,
         )
         result_by_mentor[m.id] = {
             "counts": mentor_summary.get("counts", {}),
