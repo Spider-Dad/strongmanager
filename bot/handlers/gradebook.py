@@ -1,6 +1,6 @@
 from aiogram import types
 from aiogram.dispatcher import Dispatcher
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from bot.services.database import get_session
 from bot.services.gradebook_service import (
@@ -13,7 +13,6 @@ from bot.services.gradebook_service import (
 )
 from bot.utils.markdown import escape_markdown_v2, bold
 from bot.keyboards.gradebook import kb_progress_filters, kb_training_select
-from bot.keyboards.gradebook import InlineKeyboardMarkup, InlineKeyboardButton  # reuse types
 
 
 def _format_counts(counts: dict) -> str:
@@ -21,12 +20,13 @@ def _format_counts(counts: dict) -> str:
     v_late = counts.get(STATUS_LATE, 0)
     v_nb = counts.get(STATUS_NO_BEFORE_DEADLINE, 0)
     v_na = counts.get(STATUS_NO_AFTER_DEADLINE, 0)
-    return (
-        f"✅ Сдали вовремя: {v_on}\n"
-        f"⏰ Сдали с опозданием: {v_late}\n"
-        f"⌛ Не сдали (дедлайн не прошёл): {v_nb}\n"
-        f"❌ Не сдали (дедлайн прошёл): {v_na}"
-    )
+    lines = [
+        escape_markdown_v2(f"✅ Сдали вовремя: {v_on}"),
+        escape_markdown_v2(f"⏰ Сдали с опозданием: {v_late}"),
+        escape_markdown_v2(f"⌛ Не сдали (дедлайн не прошёл): {v_nb}"),
+        escape_markdown_v2(f"❌ Не сдали (дедлайн прошёл): {v_na}"),
+    ]
+    return "\n".join(lines)
 
 
 async def cmd_progress(message: types.Message, config):
@@ -68,7 +68,7 @@ async def cmd_progress_admin(message: types.Message, config):
             total = data.get("total_students", 0)
             not_on_time = counts.get(STATUS_LATE, 0) + counts.get(STATUS_NO_BEFORE_DEADLINE, 0) + counts.get(STATUS_NO_AFTER_DEADLINE, 0)
             perc = f"{int(not_on_time / max(total, 1) * 100)}%" if total else "0%"
-            lines.append(f"Наставник {mid}: не вовремя {not_on_time} ({perc})")
+            lines.append(escape_markdown_v2(f"Наставник {mid}: не вовремя {not_on_time} ({perc})"))
         await message.answer("\n".join(lines))
 
 
@@ -99,7 +99,8 @@ def _kb_lesson_select(options: list[tuple[int, str]], training_id: int, has_more
 
 def _format_summary_text(total: int, counts: dict, header: str) -> str:
     counts_text = _format_counts(counts)
-    return f"{header}\n\nВсего студентов: {total}\n\n{counts_text}"
+    total_line = escape_markdown_v2(f"Всего студентов: {total}")
+    return f"{header}\n\n{total_line}\n\n{counts_text}"
 
 
 async def cb_progress_router(call: CallbackQuery, config):
