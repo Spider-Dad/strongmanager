@@ -12,7 +12,7 @@ from bot.services.gradebook_service import (
     STATUS_NO_AFTER_DEADLINE,
 )
 from bot.utils.markdown import escape_markdown_v2, bold
-from bot.keyboards.gradebook import kb_progress_filters, kb_training_select
+from bot.keyboards.gradebook import kb_progress_filters, kb_training_select, kb_pagination
 
 
 def _format_counts(counts: dict) -> str:
@@ -131,6 +131,85 @@ async def cb_progress_router(call: CallbackQuery, config):
             trainings = tr_res.scalars().all()
             options = [(t.id, t.title or f"Training {t.id}") for t in trainings][:10]
             await call.message.edit_reply_markup(reply_markup=kb_training_select(options, has_more=len(trainings) > 10))
+            await call.answer()
+            return
+
+        # Показ списка студентов (детализация): gb:list:students [опц. фильтры + пагинация]
+        if data.startswith("gb:list:students") or data.startswith("gb:page:students"):
+            # Парсим параметры: gb:list:students[:tr:{id}][:lesson:{id}][:p:{page}]
+            parts = data.split(":")
+            training_id = None
+            lesson_id = None
+            page = 1
+            if "tr" in parts:
+                try:
+                    training_id = int(parts[parts.index("tr") + 1])
+                except Exception:
+                    training_id = None
+            if "lesson" in parts:
+                try:
+                    lesson_id = int(parts[parts.index("lesson") + 1])
+                except Exception:
+                    lesson_id = None
+            if "p" in parts:
+                try:
+                    page = int(parts[parts.index("p") + 1])
+                except Exception:
+                    page = 1
+
+            summary = await build_mentor_overview(session, mentor_id=mentor.id, training_id=training_id, lesson_id=lesson_id)
+
+            # Счётчики по студентам: подсчёт статусов по items
+            per_student = {}
+            for it in summary.get("items", []):
+                sid = it.get("student_id") if isinstance(it, dict) else it.student_id
+                st = it.get("status") if isinstance(it, dict) else it.status
+                if sid not in per_student:
+                    per_student[sid] = {
+                        STATUS_ON_TIME: 0,
+                        STATUS_LATE: 0,
+                        STATUS_NO_BEFORE_DEADLINE: 0,
+                        STATUS_NO_AFTER_DEADLINE: 0,
+                    }
+                per_student[sid][st] += 1
+
+            # Сортировка по фамилии, затем имени
+            students = summary.get("students", {})
+            def sort_key(sid):
+                info = students.get(sid, {})
+                last = (info.get("last_name") or "").lower()
+                first = (info.get("first_name") or "").lower()
+                return (last, first, sid)
+            ordered_ids = sorted(per_student.keys(), key=sort_key)
+
+            # Пагинация: группируем карточки целиком (строка = одна карточка)
+            page_size = 20
+            total_pages = max(1, (len(ordered_ids) + page_size - 1) // page_size)
+            page = max(1, min(page, total_pages))
+            start = (page - 1) * page_size
+            end = start + page_size
+            page_ids = ordered_ids[start:end]
+
+            lines = ["📊 " + bold("Детализация студентов")]
+            for sid in page_ids:
+                info = students.get(sid, {})
+                last = info.get("last_name") or ""
+                first = info.get("first_name") or ""
+                counters = per_student[sid]
+                line = f"Студент: {last} {first}\n✅ - {counters[STATUS_ON_TIME]}📝 | ⏰ - {counters[STATUS_LATE]}📝 | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]}📝 | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}📝"
+                lines.append(escape_markdown_v2(line))
+
+            text = "\n\n".join(lines)
+
+            # Построение базового префикса для пагинации
+            base = "gb:page:students"
+            if training_id is not None:
+                base += f":tr:{training_id}"
+            if lesson_id is not None:
+                base += f":lesson:{lesson_id}"
+
+            await call.message.edit_text(text)
+            await call.message.edit_reply_markup(reply_markup=kb_pagination(page, total_pages, base))
             await call.answer()
             return
 

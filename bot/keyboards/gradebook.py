@@ -11,6 +11,9 @@ def kb_progress_filters():
         InlineKeyboardButton("Статус: вовремя", callback_data="gb:status:on_time"),
         InlineKeyboardButton("Статус: не вовремя", callback_data="gb:status:not_on_time"),
     )
+    kb.add(
+        InlineKeyboardButton("Детализация", callback_data="gb:list:students"),
+    )
     return kb
 
 
