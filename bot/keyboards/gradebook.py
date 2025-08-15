@@ -48,15 +48,16 @@ def kb_filters_with_pagination(training_id: Optional[int], lesson_id: Optional[i
         InlineKeyboardButton("Фильтр: тренинг", callback_data="gb:filter:training"),
         InlineKeyboardButton("Фильтр: урок", callback_data=lesson_cb),
     )
-    kb.add(InlineKeyboardButton("Сбросить фильтры", callback_data="gb:back"))
-    # Pagination row
+    # Pagination row - в одном ряду
     prev_page = max(1, page - 1)
     next_page = min(total_pages, page + 1)
-    kb.add(
+    kb.row(
         InlineKeyboardButton("←", callback_data=f"{base_cb}:p:{prev_page}"),
         InlineKeyboardButton(f"{page}/{total_pages}", callback_data="gb:nop"),
         InlineKeyboardButton("→", callback_data=f"{base_cb}:p:{next_page}"),
     )
+    # Сброс фильтров внизу
+    kb.add(InlineKeyboardButton("Сбросить фильтры", callback_data="gb:back"))
     return kb
 
 

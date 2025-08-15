@@ -1,8 +1,13 @@
+import logging
 from aiogram import types
 from aiogram.dispatcher import Dispatcher
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from typing import Optional
 
 from bot.services.database import get_session
+
+logger = logging.getLogger(__name__)
+
 from bot.services.gradebook_service import (
     build_mentor_overview,
     build_admin_overview,
@@ -40,7 +45,7 @@ async def cmd_progress(message: types.Message, config):
     user_id = message.from_user.id
     # Наставник — не админ
     if user_id in config.admin_ids:
-        await message.answer("Команда доступна только наставникам. Используйте /progress_admin.")
+        await message.answer("Вы выбрали команду для Наставника. Для просмотра табеля успеваемости, для вашей роли, используйте команду /progress_admin")
         return
 
     async for session in get_session():
@@ -59,7 +64,7 @@ async def cmd_progress(message: types.Message, config):
 async def cmd_progress_admin(message: types.Message, config):
     user_id = message.from_user.id
     if user_id not in config.admin_ids:
-        await message.answer("Доступ запрещён.")
+        await message.answer("Вы выбрали команду для Администратора. Для просмотра табеля успеваемости, для вашей роли, используйте команду /progress")
         return
 
     async for session in get_session():
@@ -130,9 +135,9 @@ async def cb_progress_router(call: CallbackQuery, config):
                 lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == t.id))
                 lessons = lessons_res.scalars().all()
                 state = get_training_state(lessons)
-                state_text = {"active": "(активный)", "completed": "(завершен)", "not_started": "(не начат)"}[state]
+                state_emoji = {"active": "🟡", "completed": "🟢", "not_started": "🔴"}[state]
                 allowed = state != "not_started"
-                options.append((t.id, f"{t.title or f'Training {t.id}'} {state_text}", allowed))
+                options.append((t.id, f"{state_emoji} {t.title or f'Training {t.id}'}", allowed))
             options = options[:10]
             await call.message.edit_reply_markup(reply_markup=kb_training_select_with_status(options, has_more=len(trainings) > 10))
             await call.answer()
@@ -231,34 +236,57 @@ async def cb_progress_router(call: CallbackQuery, config):
         # Выбор урока: gb:filter:lesson:tr:{id}
         if data.startswith("gb:filter:lesson"):
             parts = data.split(":")
-            if len(parts) < 4 or parts[3] != "tr":
+            # Проверяем формат: gb:filter:lesson или gb:filter:lesson:tr:ID
+            if len(parts) < 3:
                 await call.answer("Сначала выберите тренинг", show_alert=True)
                 return
-            try:
-                training_id = int(parts[4]) if parts[3] == "tr" else int(parts[3])
-            except Exception:
-                await call.answer("Некорректный тренинг", show_alert=True)
+
+            training_id = None
+            if len(parts) >= 5 and parts[3] == "tr":
+                try:
+                    training_id = int(parts[4])
+                except Exception:
+                    await call.answer("Некорректный тренинг", show_alert=True)
+                    return
+            else:
+                await call.answer("Сначала выберите тренинг", show_alert=True)
                 return
-            lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == training_id))
-            lessons = lessons_res.scalars().all()
-            from bot.services.gradebook_service import get_lesson_state
-            opts = []
-            for l in lessons:
-                state = get_lesson_state(l)
-                state_text = {"active": "(активный)", "completed": "(завершен)", "not_started": "(не начат)"}[state]
-                allowed = state != "not_started"
-                opts.append((l.id, f"{l.title or f'Lesson {l.id}'} {state_text}", allowed))
-            opts = opts[:10]
-            await call.message.edit_reply_markup(reply_markup=kb_lesson_select_with_status(opts, training_id, has_more=len(lessons) > 10))
-            await call.answer()
+
+            try:
+                lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == training_id))
+                lessons = lessons_res.scalars().all()
+                if not lessons:
+                    await call.answer("Нет уроков в данном тренинге", show_alert=True)
+                    return
+
+                from bot.services.gradebook_service import get_lesson_state
+                opts = []
+                for l in lessons:
+                    state = get_lesson_state(l)
+                    state_emoji = {"active": "🟡", "completed": "🟢", "not_started": "🔴"}[state]
+                    allowed = state != "not_started"
+                    # Добавляем номер урока, если есть
+                    lesson_num = f"№{l.lesson_number}" if l.lesson_number is not None else ""
+                    opts.append((l.id, f"{state_emoji} {lesson_num} {l.title or f'Lesson {l.id}'}", allowed))
+                opts = opts[:10]
+                await call.message.edit_reply_markup(reply_markup=kb_lesson_select_with_status(opts, training_id, has_more=len(lessons) > 10))
+                await call.answer()
+            except Exception as e:
+                logger.error(f"Ошибка при выборе урока: {e}")
+                await call.answer("Произошла ошибка при загрузке уроков", show_alert=True)
             return
 
         # Установка урока: gb:set:lesson:{lesson_id}:tr:{training_id}
         if data.startswith("gb:set:lesson:"):
             parts = data.split(":")
+            # Проверяем формат: gb:set:lesson:LESSON_ID:tr:TRAINING_ID
+            if len(parts) < 6 or parts[3] != "tr":
+                await call.answer("Некорректные данные", show_alert=True)
+                return
+
             try:
                 lesson_id = int(parts[2])
-                training_id = int(parts[4]) if len(parts) > 4 and parts[3] == "tr" else None
+                training_id = int(parts[4])
             except Exception:
                 await call.answer("Некорректные данные", show_alert=True)
                 return
