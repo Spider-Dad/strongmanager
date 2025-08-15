@@ -46,8 +46,7 @@ class SyncService:
         # Список листов для чтения (через окружение SYNC_SHEETS)
         self.default_sheet_names = [
             'mentors', 'students', 'mapping', 'trainings', 'lessons',
-            'logs', 'notifications', 'webhook_raw_log', 'debug_log',
-            'progress_config', 'progress_overrides'
+            'logs', 'notifications', 'webhook_raw_log', 'debug_log'
         ]
         env_sheets = os.getenv("SYNC_SHEETS")
         if env_sheets:
@@ -217,8 +216,7 @@ class SyncService:
                 # Импорт данных по таблицам
                 from bot.services.database import (
                     Mentor, Student, Mapping, Training, Lesson,
-                    Log, Notification, WebhookRawLog, DebugLog,
-                    ProgressConfig, ProgressOverride
+                    Log, Notification, WebhookRawLog, DebugLog
                 )
 
                 # Mentors
@@ -336,33 +334,6 @@ class SyncService:
                     )
                     session.add(debug)
                 sync_result['records_synced']['debug_log'] = len(sheets_data.get('debug_log', []))
-
-                # ProgressConfig (новое)
-                for row in sheets_data.get('progress_config', []):
-                    pc = ProgressConfig(
-                        id=self.get_int(row.get('id')),
-                        training_id=self.get_int(row.get('trainingId')),
-                        lesson_id=self.get_int(row.get('lessonId')),
-                        deadline_override=self.parse_date(row.get('deadlineOverride')),
-                        weight=self.get_int(row.get('weight')),
-                        tags=row.get('tags'),
-                        visibility=row.get('visibility'),
-                    )
-                    session.add(pc)
-                sync_result['records_synced']['progress_config'] = len(sheets_data.get('progress_config', []))
-
-                # ProgressOverride (новое)
-                for row in sheets_data.get('progress_overrides', []):
-                    po = ProgressOverride(
-                        id=self.get_int(row.get('id')),
-                        student_id=self.get_int(row.get('studentId')),
-                        lesson_id=self.get_int(row.get('lessonId')),
-                        status_override=row.get('statusOverride'),
-                        comment=row.get('comment'),
-                        expires_at=self.parse_date(row.get('expiresAt')),
-                    )
-                    session.add(po)
-                sync_result['records_synced']['progress_overrides'] = len(sheets_data.get('progress_overrides', []))
 
                 await session.commit()
 

@@ -72,28 +72,7 @@ class Lesson(Base):
     opening_date = Column(DateTime, nullable=True)
     deadline_date = Column(DateTime, nullable=True)
 
-# Конфигурация табеля успеваемости (персонализация дедлайнов/весов/видимости)
-class ProgressConfig(Base):
-    __tablename__ = "progress_config"
 
-    id = Column(Integer, primary_key=True)
-    training_id = Column(Integer, nullable=False)
-    lesson_id = Column(Integer, nullable=True)
-    deadline_override = Column(DateTime, nullable=True)
-    weight = Column(Integer, nullable=True)
-    tags = Column(String(255), nullable=True)
-    visibility = Column(String(50), nullable=True)
-
-# Ручные корректировки статусов успеваемости
-class ProgressOverride(Base):
-    __tablename__ = "progress_overrides"
-
-    id = Column(Integer, primary_key=True)
-    student_id = Column(Integer, nullable=False)
-    lesson_id = Column(Integer, nullable=False)
-    status_override = Column(String(50), nullable=False)
-    comment = Column(Text, nullable=True)
-    expires_at = Column(DateTime, nullable=True)
 
 # Модель для хранения данных о логах
 class Log(Base):

@@ -12,8 +12,7 @@
 - Администратор: `config.admin_ids`
 
 Синхронизация данных
-- Новые листы (только чтение): `progress_config`, `progress_overrides`
-- Новые таблицы БД: `progress_config`, `progress_overrides`
+- Используются существующие листы: `logs`, `lessons`, `students`, `mentors`
 
 Ограничения/заметки
 - Сообщения компактные, при необходимости делятся на несколько.

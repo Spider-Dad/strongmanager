@@ -16,8 +16,6 @@ from bot.services.database import (
     Training,
     Lesson,
     Log,
-    ProgressConfig,
-    ProgressOverride,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,47 +114,10 @@ def get_training_state(lessons: List[Lesson], now: Optional[datetime] = None) ->
     return "active"
 
 
-async def _fetch_progress_config(session: AsyncSession, training_ids: Iterable[int], lesson_ids: Iterable[int]) -> Tuple[Dict[int, ProgressConfig], Dict[int, ProgressConfig]]:
-    """Возвращает два словаря: конфигурации по урокам и по тренингам.
-    lesson_config[lesson_id] = ProgressConfig; training_config[training_id] = ProgressConfig
-    Если несколько записей, приоритет не гарантируем — рекомендуется уникальность в источнике.
-    """
-    lesson_ids = list(set(lesson_ids))
-    training_ids = list(set(training_ids))
-
-    lesson_config: Dict[int, ProgressConfig] = {}
-    training_config: Dict[int, ProgressConfig] = {}
-
-    if training_ids:
-        res_tr = await session.execute(select(ProgressConfig).where(ProgressConfig.training_id.in_(training_ids)))
-        for cfg in res_tr.scalars().all():
-            if cfg.lesson_id:
-                lesson_config[cfg.lesson_id] = cfg
-            else:
-                training_config[cfg.training_id] = cfg
-
-    return lesson_config, training_config
 
 
-async def _fetch_overrides(session: AsyncSession, student_ids: Iterable[int], lesson_ids: Iterable[int]) -> Dict[Tuple[int, int], ProgressOverride]:
-    key_to_override: Dict[Tuple[int, int], ProgressOverride] = {}
-    ids_s = list(set(student_ids))
-    ids_l = list(set(lesson_ids))
-    if not ids_s or not ids_l:
-        return key_to_override
-    res = await session.execute(
-        select(ProgressOverride).where(
-            and_(
-                ProgressOverride.student_id.in_(ids_s),
-                ProgressOverride.lesson_id.in_(ids_l),
-            )
-        )
-    )
-    now = datetime.now()
-    for po in res.scalars().all():
-        if po.expires_at is None or po.expires_at > now:
-            key_to_override[(po.student_id, po.lesson_id)] = po
-    return key_to_override
+
+
 
 
 async def _fetch_logs_earliest_by_student_lesson(
@@ -193,11 +154,8 @@ async def _fetch_logs_earliest_by_student_lesson(
     return earliest
 
 
-def _resolve_deadline(lesson: Lesson, lesson_cfg: Optional[ProgressConfig], training_cfg: Optional[ProgressConfig]) -> Optional[datetime]:
-    if lesson_cfg and lesson_cfg.deadline_override:
-        return lesson_cfg.deadline_override
-    if training_cfg and training_cfg.deadline_override:
-        return training_cfg.deadline_override
+def _resolve_deadline(lesson: Lesson) -> Optional[datetime]:
+    """Возвращает дедлайн урока"""
     return lesson.deadline_date
 
 
@@ -230,13 +188,10 @@ async def build_mentor_overview(
     if not lessons:
         return {"total_students": len(students), "counts": {}, "by_lesson": {}, "by_student": {}, "items": []}
 
-    lesson_config, training_config = await _fetch_progress_config(session, training_ids, [l.id for l in lessons])
-
     # Карта student_id -> email
     student_id_to_email = {sid: s.user_email for sid, s in students.items()}
 
     earliest = await _fetch_logs_earliest_by_student_lesson(session, student_id_to_email, [l.id for l in lessons])
-    overrides = await _fetch_overrides(session, students.keys(), [l.id for l in lessons])
 
     now = datetime.now()
 
@@ -244,23 +199,13 @@ async def build_mentor_overview(
     lessons_filtered: List[Lesson] = []
     for sid in students.keys():
         for lesson in lessons:
-            # Пропускаем уроки скрытые видимостью
-            l_cfg = lesson_config.get(lesson.id)
-            t_cfg = training_config.get(lesson.training_id)
-            if (l_cfg and l_cfg.visibility == "hidden") or (t_cfg and t_cfg.visibility == "hidden"):
-                continue
-
-            deadline = _resolve_deadline(lesson, l_cfg, t_cfg)
+            deadline = _resolve_deadline(lesson)
             answer_date = earliest.get((sid, lesson.id))
             # Исключаем уроки в состоянии not_started, если не требуется включать
             if not include_not_started and get_lesson_state(lesson, now) == "not_started":
                 continue
 
             status = categorize_status(deadline, answer_date, now)
-
-            ov = overrides.get((sid, lesson.id))
-            if ov and ov.status_override:
-                status = ov.status_override
 
             if status_filter and status != status_filter:
                 continue
