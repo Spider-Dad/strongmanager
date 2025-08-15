@@ -16,7 +16,7 @@ def kb_training_select(options: list[tuple[int, str]], has_more: bool = False):
     kb = InlineKeyboardMarkup(row_width=1)
     for tr_id, title in options:
         title_short = title if len(title) <= 48 else title[:45] + "…"
-        kb.add(InlineKeyboardButton(f"📘 {title_short}", callback_data=f"gb:set:tr:{tr_id}"))
+        kb.add(InlineKeyboardButton(title_short, callback_data=f"gb:set:tr:{tr_id}"))
     if has_more:
         kb.add(InlineKeyboardButton("Показаны первые 10", callback_data="gb:nop"))
     kb.add(InlineKeyboardButton("← Назад", callback_data="gb:back"))
@@ -67,7 +67,7 @@ def kb_training_select_with_status(options: list[tuple[int, str, bool]], has_mor
     for tr_id, title, allowed in options:
         title_short = title if len(title) <= 48 else title[:45] + "…"
         cb = f"gb:set:tr:{tr_id}" if allowed else "gb:block:not_started"
-        kb.add(InlineKeyboardButton(f"📘 {title_short}", callback_data=cb))
+        kb.add(InlineKeyboardButton(title_short, callback_data=cb))
     if has_more:
         kb.add(InlineKeyboardButton("Показаны первые 10", callback_data="gb:nop"))
     kb.add(InlineKeyboardButton("← Назад", callback_data="gb:back"))
@@ -79,7 +79,7 @@ def kb_lesson_select_with_status(options: list[tuple[int, str, bool]], training_
     for lesson_id, title, allowed in options:
         title_short = title if len(title) <= 48 else title[:45] + "…"
         cb = (f"gb:set:lesson:{lesson_id}:tr:{training_id}" if allowed else "gb:block:not_started")
-        kb.add(InlineKeyboardButton(f"📗 {title_short}", callback_data=cb))
+        kb.add(InlineKeyboardButton(title_short, callback_data=cb))
     if has_more:
         kb.add(InlineKeyboardButton("Показаны первые 10", callback_data="gb:nop"))
     kb.add(InlineKeyboardButton("← Назад", callback_data="gb:back"))

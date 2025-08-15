@@ -45,7 +45,7 @@ async def cmd_progress(message: types.Message, config):
     user_id = message.from_user.id
     # Наставник — не админ
     if user_id in config.admin_ids:
-        await message.answer("Вы выбрали команду для Наставника. Для просмотра табеля успеваемости, для вашей роли, используйте команду /progress_admin")
+        await message.answer(escape_markdown_v2("Вы выбрали команду для Наставника. Для просмотра табеля успеваемости, для вашей роли, используйте команду /progress_admin"), parse_mode='MarkdownV2')
         return
 
     async for session in get_session():
@@ -64,7 +64,7 @@ async def cmd_progress(message: types.Message, config):
 async def cmd_progress_admin(message: types.Message, config):
     user_id = message.from_user.id
     if user_id not in config.admin_ids:
-        await message.answer("Вы выбрали команду для Администратора. Для просмотра табеля успеваемости, для вашей роли, используйте команду /progress")
+        await message.answer(escape_markdown_v2("Вы выбрали команду для Администратора. Для просмотра табеля успеваемости, для вашей роли, используйте команду /progress"), parse_mode='MarkdownV2')
         return
 
     async for session in get_session():
@@ -105,29 +105,37 @@ def _format_summary_text(total: int, counts: dict, header: str) -> str:
 async def cb_progress_router(call: CallbackQuery, config):
     user_id = call.from_user.id
     data = call.data or ""
-    if user_id in config.admin_ids:
-        await call.answer()
-        return
 
     async for session in get_session():
+        # Проверяем: админ или наставник
+        is_admin = user_id in config.admin_ids
+
         from sqlalchemy import select
         from bot.services.database import Mentor, Mapping, Training, Lesson
 
-        res = await session.execute(select(Mentor).where(Mentor.telegram_id == user_id))
-        mentor = res.scalars().first()
-        if not mentor:
-            await call.answer("Нет доступа", show_alert=True)
-            return
+        mentor = None
+        if not is_admin:
+            res = await session.execute(select(Mentor).where(Mentor.telegram_id == user_id))
+            mentor = res.scalars().first()
+            if not mentor:
+                await call.answer("Нет доступа", show_alert=True)
+                return
 
         # Фильтр: выбор тренинга
         if data == "gb:filter:training":
-            q = await session.execute(select(Mapping.training_id).where(Mapping.mentor_id == mentor.id))
-            training_ids = sorted({row[0] for row in q.fetchall()})
-            if not training_ids:
-                await call.answer("Нет тренингов", show_alert=True)
-                return
-            tr_res = await session.execute(select(Training).where(Training.id.in_(training_ids)))
-            trainings = tr_res.scalars().all()
+            if is_admin:
+                # Админ видит все тренинги
+                tr_res = await session.execute(select(Training))
+                trainings = tr_res.scalars().all()
+            else:
+                # Наставник видит только свои тренинги
+                q = await session.execute(select(Mapping.training_id).where(Mapping.mentor_id == mentor.id))
+                training_ids = sorted({row[0] for row in q.fetchall()})
+                if not training_ids:
+                    await call.answer("Нет тренингов", show_alert=True)
+                    return
+                tr_res = await session.execute(select(Training).where(Training.id.in_(training_ids)))
+                trainings = tr_res.scalars().all()
             # добавляем статус тренинга и запрещаем not_started
             options = []
             from bot.services.gradebook_service import get_training_state
@@ -143,8 +151,8 @@ async def cb_progress_router(call: CallbackQuery, config):
             await call.answer()
             return
 
-        # Показ списка студентов (детализация): gb:list:students [опц. фильтры + пагинация]
-        if data.startswith("gb:list:students") or data.startswith("gb:page:students"):
+        # Показ списка студентов/админа (детализация): gb:list:students [опц. фильтры + пагинация] или gb:page:admin
+        if data.startswith("gb:list:students") or data.startswith("gb:page:students") or data.startswith("gb:page:admin"):
             # Парсим параметры: gb:list:students[:tr:{id}][:lesson:{id}][:p:{page}]
             parts = data.split(":")
             training_id = None
@@ -205,7 +213,7 @@ async def cb_progress_router(call: CallbackQuery, config):
                 last = info.get("last_name") or ""
                 first = info.get("first_name") or ""
                 counters = per_student[sid]
-                line = f"Студент: {last} {first}\n✅ - {counters[STATUS_ON_TIME]}📝 | ⏰ - {counters[STATUS_LATE]}📝 | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]}📝 | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}📝"
+                line = f"Студент: {last} {first}\n✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"
                 lines.append(escape_markdown_v2(line))
 
             text = "\n\n".join(lines)
@@ -229,7 +237,10 @@ async def cb_progress_router(call: CallbackQuery, config):
             except Exception:
                 await call.answer("Некорректный тренинг", show_alert=True)
                 return
-            await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=None, page=1)
+            if is_admin:
+                await _render_admin_list(call.message, session, training_id=training_id, lesson_id=None, page=1)
+            else:
+                await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=None, page=1)
             await call.answer()
             return
 
@@ -276,21 +287,25 @@ async def cb_progress_router(call: CallbackQuery, config):
                 await call.answer("Произошла ошибка при загрузке уроков", show_alert=True)
             return
 
-        # Установка урока: gb:set:lesson:{lesson_id}:tr:{training_id}
+                # Установка урока: gb:set:lesson:{lesson_id}:tr:{training_id}
         if data.startswith("gb:set:lesson:"):
             parts = data.split(":")
             # Проверяем формат: gb:set:lesson:LESSON_ID:tr:TRAINING_ID
-            if len(parts) < 6 or parts[3] != "tr":
+            # parts = ["gb", "set", "lesson", "{lesson_id}", "tr", "{training_id}"]
+            if len(parts) < 6 or parts[4] != "tr":
                 await call.answer("Некорректные данные", show_alert=True)
                 return
 
             try:
-                lesson_id = int(parts[2])
-                training_id = int(parts[4])
+                lesson_id = int(parts[3])
+                training_id = int(parts[5])
             except Exception:
                 await call.answer("Некорректные данные", show_alert=True)
                 return
-            await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=lesson_id, page=1)
+            if is_admin:
+                await _render_admin_list(call.message, session, training_id=training_id, lesson_id=lesson_id, page=1)
+            else:
+                await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=lesson_id, page=1)
             await call.answer()
             return
 
@@ -301,7 +316,10 @@ async def cb_progress_router(call: CallbackQuery, config):
 
         if data == "gb:back":
             # Сброс к базовому экрану
-            await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=None, lesson_id=None, page=1)
+            if is_admin:
+                await _render_admin_list(call.message, session, training_id=None, lesson_id=None, page=1)
+            else:
+                await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=None, lesson_id=None, page=1)
             await call.answer()
             return
 
@@ -344,6 +362,12 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
         return (last, first, sid)
     ordered_ids = sorted(per_student.keys(), key=sort_key)
 
+    # Проверка наличия студентов
+    if not ordered_ids:
+        text = "📊 " + bold("Статистика ваших студентов") + "\n\n" + escape_markdown_v2("Нет назначенных студентов")
+        await message.edit_text(text, parse_mode='MarkdownV2', reply_markup=kb_progress_filters())
+        return
+
     # paging
     page_size = 20
     total_pages = max(1, (len(ordered_ids) + page_size - 1) // page_size)
@@ -379,7 +403,7 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
         escape_markdown_v2("⏰ Ответ на урок предоставлен после его завершения"),
         escape_markdown_v2("⌛ Нет ответа на активный урок"),
         escape_markdown_v2("❌ Нет ответа на завершенный урок"),
-        escape_markdown_v2("📝 Число уроков в каждом статусе"),
+        escape_markdown_v2("Число уроков в каждом статусе"),
         "",
     ]
     for sid in page_ids:
@@ -388,7 +412,8 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
         first = info.get("first_name") or ""
         counters = per_student[sid]
         lines.append(escape_markdown_v2(f"Студент: {last} {first}"))
-        lines.append(escape_markdown_v2(f"✅ - {counters[STATUS_ON_TIME]}📝 | ⏰ - {counters[STATUS_LATE]}📝 | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]}📝 | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}📝"))
+        lines.append(escape_markdown_v2(f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
+        lines.append("")  # Пустая строка для разделения студентов
 
     text = "\n".join(lines)
     base = "gb:page:students"
@@ -430,9 +455,15 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
             last = info.get("last_name") or ""
             first = info.get("first_name") or ""
             counters = per_student[sid]
-            student_rows.append((f"Студент: {last} {first}", f"✅ - {counters[STATUS_ON_TIME]}📝 | ⏰ - {counters[STATUS_LATE]}📝 | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]}📝 | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}📝"))
+            student_rows.append((f"Студент: {last} {first}", f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
         mentor_name = f"Наставник: {m.last_name or ''} {m.first_name or ''}".strip()
-        blocks.append((mentor_name, student_rows, len(student_rows) if student_rows else 1))
+        if student_rows:  # Добавляем только наставников с назначенными студентами
+            blocks.append((mentor_name, student_rows, len(student_rows)))
+
+    if not blocks:
+        text = "📈 " + bold("Статистика по наставникам") + "\n\n" + escape_markdown_v2("Нет студентов, назначенных наставникам")
+        await message.edit_text(text, parse_mode='MarkdownV2')
+        return
 
     # Пагинация блоками (не разрываем наставника)
     page_size = 20
@@ -485,7 +516,7 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
         escape_markdown_v2("⏰ Ответ на урок предоставлен после его завершения"),
         escape_markdown_v2("⌛ Нет ответа на активный урок"),
         escape_markdown_v2("❌ Нет ответа на завершенный урок"),
-        escape_markdown_v2("📝 Число уроков в каждом статусе"),
+        escape_markdown_v2("Число уроков в каждом статусе"),
         "",
     ]
     for mentor_name, rows in page_blocks:
@@ -493,6 +524,7 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
         for title, counters in rows:
             lines.append(escape_markdown_v2(title))
             lines.append(escape_markdown_v2(counters))
+        lines.append("")  # Пустая строка для разделения наставников
 
     text = "\n".join(lines)
     base = "gb:page:admin"
