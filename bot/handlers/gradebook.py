@@ -378,32 +378,32 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
 
     # header with filters
     if training_id is None:
-        tr_line = "Тренинг: по всем активным и завершенным тренингам"
+        tr_line = f"{bold('Тренинг')}: по всем активным и завершенным тренингам"
     else:
         from sqlalchemy import select
         from bot.services.database import Training
         tr = await session.execute(select(Training).where(Training.id == training_id))
         t = tr.scalars().first()
-        tr_line = f"Тренинг: {t.title if t and t.title else training_id}"
+        tr_line = f"{bold('Тренинг')}: {t.title if t and t.title else training_id}"
     if lesson_id is None:
-        ls_line = "Урок: по всем активным и завершенным урокам"
+        ls_line = f"{bold('Урок')}: по всем активным и завершенным урокам"
     else:
         from sqlalchemy import select
         from bot.services.database import Lesson
         lr = await session.execute(select(Lesson).where(Lesson.id == lesson_id))
         l = lr.scalars().first()
-        ls_line = f"Урок: {l.title if l and l.title else lesson_id}"
+        ls_line = f"{bold('Урок')}: {l.title if l and l.title else lesson_id}"
 
     lines = [
         "📊 " + bold("Статистика ваших студентов"),
+        "",
         escape_markdown_v2(tr_line),
         escape_markdown_v2(ls_line),
         "",
-        escape_markdown_v2("✅ Ответ на урок предоставлен до его завершения"),
-        escape_markdown_v2("⏰ Ответ на урок предоставлен после его завершения"),
-        escape_markdown_v2("⌛ Нет ответа на активный урок"),
-        escape_markdown_v2("❌ Нет ответа на завершенный урок"),
-        escape_markdown_v2("Число уроков в каждом статусе"),
+        escape_markdown_v2("✅ Урок завершен. Ответ вовремя"),
+        escape_markdown_v2("⏰ Урок завершен. Ответ с опозданием"),
+        escape_markdown_v2("⌛ Урок активный. Ответ вовремя"),
+        escape_markdown_v2("❌ Урок завершен. Ответа нет"),
         "",
     ]
     for sid in page_ids:
@@ -493,38 +493,40 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
 
     # header with filters
     if training_id is None:
-        tr_line = "Тренинг: по всем тренингам"
+        tr_line = f"{bold('Тренинг')}: по всем активным и завершенным тренингам"
     else:
         from bot.services.database import Training
         tr = await session.execute(select(Training).where(Training.id == training_id))
         t = tr.scalars().first()
-        tr_line = f"Тренинг: {t.title if t and t.title else training_id}"
+        tr_line = f"{bold('Тренинг')}: {t.title if t and t.title else training_id}"
     if lesson_id is None:
-        ls_line = "Урок: по всем  урокам"
+        ls_line = f"{bold('Урок')}: по всем активным и завершенным урокам"
     else:
         from bot.services.database import Lesson
         lr = await session.execute(select(Lesson).where(Lesson.id == lesson_id))
         l = lr.scalars().first()
-        ls_line = f"Урок: {l.title if l and l.title else lesson_id}"
+        ls_line = f"{bold('Урок')}: {l.title if l and l.title else lesson_id}"
 
     lines = [
         "📈 " + bold("Статистика по наставникам"),
+        "",
         escape_markdown_v2(tr_line),
         escape_markdown_v2(ls_line),
         "",
-        escape_markdown_v2("✅ Ответ на урок предоставлен до его завершения"),
-        escape_markdown_v2("⏰ Ответ на урок предоставлен после его завершения"),
-        escape_markdown_v2("⌛ Нет ответа на активный урок"),
-        escape_markdown_v2("❌ Нет ответа на завершенный урок"),
-        escape_markdown_v2("Число уроков в каждом статусе"),
+        escape_markdown_v2("✅ Урок завершен. Ответ вовремя"),
+        escape_markdown_v2("⏰ Урок завершен. Ответ с опозданием"),
+        escape_markdown_v2("⌛ Урок активный. Ответа нет"),
+        escape_markdown_v2("❌ Урок завершен. Ответа нет"),
         "",
     ]
     for mentor_name, rows in page_blocks:
         lines.append(escape_markdown_v2(mentor_name))
+        lines.append("")  # Пустая строка для разделения от блока студентов
         for title, counters in rows:
             lines.append(escape_markdown_v2(title))
             lines.append(escape_markdown_v2(counters))
-        lines.append("")  # Пустая строка для разделения наставников
+            lines.append("")  # Пустая строка для разделения студентв между собой
+        lines.append(escape_markdown_v2("-----"))  # строка для разделения наставников между собой
 
     text = "\n".join(lines)
     base = "gb:page:admin"
