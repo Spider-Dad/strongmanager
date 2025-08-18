@@ -272,9 +272,9 @@ async def cb_progress_router(call: CallbackQuery, config):
                 await call.answer("Некорректный тренинг", show_alert=True)
                 return
             if is_admin:
-                await _render_admin_list(call.message, session, training_id=training_id, lesson_id=None, page=1)
+                await _render_admin_list(call.message, session, training_id=training_id, lesson_id=None, page=1, edit=True)
             else:
-                await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=None, page=1)
+                await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=None, page=1, edit=True)
             await call.answer()
             return
 
@@ -347,9 +347,9 @@ async def cb_progress_router(call: CallbackQuery, config):
                 await call.answer("Некорректные данные", show_alert=True)
                 return
             if is_admin:
-                await _render_admin_list(call.message, session, training_id=training_id, lesson_id=lesson_id, page=1)
+                await _render_admin_list(call.message, session, training_id=training_id, lesson_id=lesson_id, page=1, edit=True)
             else:
-                await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=lesson_id, page=1)
+                await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=lesson_id, page=1, edit=True)
             await call.answer()
             return
 
@@ -361,9 +361,9 @@ async def cb_progress_router(call: CallbackQuery, config):
         if data == "gb:back":
             # Сброс к базовому экрану
             if is_admin:
-                await _render_admin_list(call.message, session, training_id=None, lesson_id=None, page=1)
+                await _render_admin_list(call.message, session, training_id=None, lesson_id=None, page=1, edit=True)
             else:
-                await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=None, lesson_id=None, page=1)
+                await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=None, lesson_id=None, page=1, edit=True)
             await call.answer()
             return
 
@@ -431,7 +431,7 @@ async def _build_header_with_legend(session, training_id: Optional[int], lesson_
     ]
 
 
-async def _render_students_list(message: types.Message, session, mentor_id: int, training_id: Optional[int], lesson_id: Optional[int], page: int):
+async def _render_students_list(message: types.Message, session, mentor_id: int, training_id: Optional[int], lesson_id: Optional[int], page: int, *, edit: bool = False):
     from bot.services.gradebook_service import build_mentor_overview
     summary = await build_mentor_overview(session, mentor_id=mentor_id, training_id=training_id, lesson_id=lesson_id, include_not_started=False)
 
@@ -487,7 +487,12 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
         base += f":tr:{training_id}"
     if lesson_id is not None:
         base += f":lesson:{lesson_id}"
-    await message.answer(text, reply_markup=kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base))
+    kb = kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base)
+    if edit:
+        await message.edit_text(text, parse_mode='MarkdownV2')
+        await message.edit_reply_markup(reply_markup=kb)
+    else:
+        await message.answer(text, reply_markup=kb)
 
 
 async def _render_admin_list(message: types.Message, session, training_id: Optional[int], lesson_id: Optional[int], page: int, *, edit: bool = False):
