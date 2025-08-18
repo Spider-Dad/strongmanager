@@ -155,8 +155,8 @@ async def cb_progress_router(call: CallbackQuery, config):
             await call.answer()
             return
 
-        # Показ списка студентов/админа (детализация): gb:list:students [опц. фильтры + пагинация] или gb:page:admin
-        if data.startswith("gb:list:students") or data.startswith("gb:page:students") or data.startswith("gb:page:admin"):
+        # Показ списка студентов (детализация): gb:list:students [опц. фильтры + пагинация]
+        if data.startswith("gb:list:students") or data.startswith("gb:page:students"):
             # Парсим параметры: gb:list:students[:tr:{id}][:lesson:{id}][:p:{page}]
             parts = data.split(":")
             training_id = None
@@ -235,6 +235,32 @@ async def cb_progress_router(call: CallbackQuery, config):
 
             await call.message.edit_text(text, parse_mode='MarkdownV2')
             await call.message.edit_reply_markup(reply_markup=kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base))
+            await call.answer()
+            return
+
+        # Пагинация в админском режиме: gb:page:admin[:tr:{id}][:lesson:{id}][:p:{page}]
+        if data.startswith("gb:page:admin"):
+            parts = data.split(":")
+            training_id = None
+            lesson_id = None
+            page = 1
+            if "tr" in parts:
+                try:
+                    training_id = int(parts[parts.index("tr") + 1])
+                except Exception:
+                    training_id = None
+            if "lesson" in parts:
+                try:
+                    lesson_id = int(parts[parts.index("lesson") + 1])
+                except Exception:
+                    lesson_id = None
+            if "p" in parts:
+                try:
+                    page = int(parts[parts.index("p") + 1])
+                except Exception:
+                    page = 1
+
+            await _render_admin_list(call.message, session, training_id=training_id, lesson_id=lesson_id, page=page, edit=True)
             await call.answer()
             return
 
@@ -464,7 +490,7 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
     await message.answer(text, reply_markup=kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base))
 
 
-async def _render_admin_list(message: types.Message, session, training_id: Optional[int], lesson_id: Optional[int], page: int):
+async def _render_admin_list(message: types.Message, session, training_id: Optional[int], lesson_id: Optional[int], page: int, *, edit: bool = False):
     from sqlalchemy import select
     from bot.services.database import Mentor
     mentors_res = await session.execute(select(Mentor))
@@ -553,4 +579,9 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
         base += f":tr:{training_id}"
     if lesson_id is not None:
         base += f":lesson:{lesson_id}"
-    await message.answer(text, reply_markup=kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base))
+    kb = kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base)
+    if edit:
+        await message.edit_text(text)
+        await message.edit_reply_markup(reply_markup=kb)
+    else:
+        await message.answer(text, reply_markup=kb)
