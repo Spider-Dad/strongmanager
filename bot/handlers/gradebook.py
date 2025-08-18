@@ -36,10 +36,10 @@ def _format_counts(counts: dict) -> str:
     v_nb = counts.get(STATUS_NO_BEFORE_DEADLINE, 0)
     v_na = counts.get(STATUS_NO_AFTER_DEADLINE, 0)
     lines = [
-        escape_markdown_v2(f"✅ Сдали вовремя: {v_on}"),
-        escape_markdown_v2(f"⏰ Сдали с опозданием: {v_late}"),
-        escape_markdown_v2(f"⌛ Не сдали (дедлайн не прошёл): {v_nb}"),
-        escape_markdown_v2(f"❌ Не сдали (дедлайн прошёл): {v_na}"),
+        escape_markdown_v2(f"✅ Ответ вовремя: {v_on}"),
+        escape_markdown_v2(f"⏰ Ответ с опозданием: {v_late}"),
+        escape_markdown_v2(f"⌛ Ответ вовремя: {v_nb}"),
+        escape_markdown_v2(f"❌ Ответа нет: {v_na}"),
     ]
     return "\n".join(lines)
 
@@ -148,7 +148,8 @@ async def cb_progress_router(call: CallbackQuery, config):
                 state = get_training_state(lessons)
                 state_emoji = {"active": "🟡", "completed": "🟢", "not_started": "🔴"}[state]
                 allowed = state != "not_started"
-                options.append((t.id, f"{state_emoji} {t.title or f'Training {t.id}'}", allowed))
+                title_text = t.title or f"Training {t.id}"
+                options.append((t.id, f"{state_emoji} {title_text}", allowed))
             options = options[:10]
             await call.message.edit_reply_markup(reply_markup=kb_training_select_with_status(options, has_more=len(trainings) > 10))
             await call.answer()
@@ -218,7 +219,8 @@ async def cb_progress_router(call: CallbackQuery, config):
                 last = info.get("last_name") or ""
                 first = info.get("first_name") or ""
                 counters = per_student[sid]
-                lines.append(italic("Студент") + escape_markdown_v2(f": {last} {first}"))
+                student_name = f"{last} {first}"
+                lines.append(f"{italic('Студент')}: {escape_markdown_v2(student_name)}")
                 lines.append(escape_markdown_v2(f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
                 lines.append("")  # Пустая строка для разделения студентов
 
@@ -285,7 +287,8 @@ async def cb_progress_router(call: CallbackQuery, config):
                     allowed = state != "not_started"
                     # Добавляем номер урока, если есть
                     lesson_num = f"№ {l.lesson_number}. " if l.lesson_number is not None else ""
-                    title = f"{state_emoji} {lesson_num}{l.title or f'Lesson {l.id}'}"
+                    lesson_title = l.title or f"Lesson {l.id}"
+                    title = f"{state_emoji} {lesson_num}{lesson_title}"
                     # Для сортировки: активный урок (priority=0), остальные по номеру урока
                     priority = 0 if state == "active" else 1
                     sort_key = (priority, l.lesson_number or 0)
@@ -356,7 +359,7 @@ async def _build_header_with_legend(session, training_id: Optional[int], lesson_
     """Формирует хедер с легендой для отображения статистики."""
     # header with filters
     if training_id is None:
-        tr_line = f"{bold('Тренинг')}: по всем 🟡активным и 🟢завершенным тренингам"
+        tr_line = f"{bold('Тренинг')}: {escape_markdown_v2('по всем активным 🟡 и завершенным 🟢 тренингам.')}"
     else:
         from sqlalchemy import select
         from bot.services.database import Training, Lesson
@@ -367,9 +370,11 @@ async def _build_header_with_legend(session, training_id: Optional[int], lesson_
         training_lessons = lessons_res.scalars().all()
         state = get_training_state(training_lessons)
         emoji = get_status_emoji(state)
-        tr_line = f"{bold('Тренинг')}: {emoji}{t.title if t and t.title else training_id}"
+        title_text = t.title if t and t.title else str(training_id)
+        training_info = f"{emoji}{title_text}"
+        tr_line = f"{bold('Тренинг')}: {escape_markdown_v2(training_info)}"
     if lesson_id is None:
-        ls_line = f"{bold('Урок')}: по всем 🟡активным и 🟢завершенным урокам"
+        ls_line = f"{bold('Урок')}: {escape_markdown_v2('по всем активным 🟡 и завершенным 🟢 урокам.')}"
     else:
         from sqlalchemy import select
         from bot.services.database import Lesson
@@ -378,22 +383,24 @@ async def _build_header_with_legend(session, training_id: Optional[int], lesson_
         if l:
             state = get_lesson_state(l)
             emoji = get_status_emoji(state)
-            ls_line = f"{bold('Урок')}: {emoji}{l.title if l.title else lesson_id}"
+            title_text = l.title if l.title else str(lesson_id)
+            lesson_info = f"{emoji}{title_text}"
+            ls_line = f"{bold('Урок')}: {escape_markdown_v2(lesson_info)}"
         else:
-            ls_line = f"{bold('Урок')}: {lesson_id}"
+            ls_line = f"{bold('Урок')}: {escape_markdown_v2(str(lesson_id))}"
 
     title = "📈 " + bold("Статистика по наставникам") if is_admin else "📊 " + bold("Статистика ваших студентов")
 
     return [
         title,
         "",
-        escape_markdown_v2(tr_line),
-        escape_markdown_v2(ls_line),
+        tr_line,
+        ls_line,
         "",
-        escape_markdown_v2("🟢Урок завершен. ✅Ответ вовремя."),
-        escape_markdown_v2("🟢Урок завершен. ⏰Ответ с опозданием."),
-        escape_markdown_v2("🟡Урок активный. ⌛Ответ вовремя."),
-        escape_markdown_v2("🟢Урок завершен. ❌Ответа нет."),
+        escape_markdown_v2("🟢 Урок завершен. ✅ Ответ вовремя."),
+        escape_markdown_v2("🟢 Урок завершен. ⏰ Ответ с опозданием."),
+        escape_markdown_v2("🟡 Урок активный. ⌛ Ответ вовремя."),
+        escape_markdown_v2("🟢 Урок завершен. ❌ Ответа нет."),
         "",
     ]
 
@@ -443,7 +450,8 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
         last = info.get("last_name") or ""
         first = info.get("first_name") or ""
         counters = per_student[sid]
-        lines.append(italic("Студент") + escape_markdown_v2(f": {last} {first}"))
+        student_name = f"{last} {first}"
+        lines.append(f"{italic('Студент')}: {escape_markdown_v2(student_name)}")
         lines.append(escape_markdown_v2(f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
         lines.append("")  # Пустая строка для разделения студентов
 
@@ -487,8 +495,14 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
             last = info.get("last_name") or ""
             first = info.get("first_name") or ""
             counters = per_student[sid]
-            student_rows.append((f"*Студент*: {last} {first}", f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
-        mentor_name = f"**Наставник**: {m.last_name or ''} {m.first_name or ''}".strip()
+            student_name = f"{last} {first}"
+            student_title = f"{italic('Студент')}: {escape_markdown_v2(student_name)}"
+            student_stats = escape_markdown_v2(f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}")
+            student_rows.append((student_title, student_stats))
+        mentor_last = m.last_name or ""
+        mentor_first = m.first_name or ""
+        mentor_full_name = f"{mentor_last} {mentor_first}".strip()
+        mentor_name = f"{bold('Наставник')}: {escape_markdown_v2(mentor_full_name)}"
         if student_rows:  # Добавляем только наставников с назначенными студентами
             blocks.append((mentor_name, student_rows, len(student_rows)))
 
@@ -525,11 +539,11 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
 
     lines = await _build_header_with_legend(session, training_id, lesson_id, is_admin=True)
     for mentor_name, rows in page_blocks:
-        lines.append(escape_markdown_v2(mentor_name))
+        lines.append(mentor_name)  # mentor_name уже отформатирован с bold() и escape_markdown_v2()
         lines.append("")  # Пустая строка для разделения от блока студентов
         for title, counters in rows:
-            lines.append(escape_markdown_v2(title))
-            lines.append(escape_markdown_v2(counters))
+            lines.append(title)  # title уже отформатирован с italic() и escape_markdown_v2()
+            lines.append(counters)  # counters уже экранированы
             lines.append("")  # Пустая строка для разделения студентв между собой
         lines.append(escape_markdown_v2("-----"))  # строка для разделения наставников между собой
 
