@@ -3,9 +3,10 @@ from aiogram import Dispatcher, types
 from aiogram.dispatcher.filters import IDFilter
 from bot.utils.alerts import ErrorCollector
 from bot.utils.markdown import bold, escape_markdown_v2
-from bot.utils.gs_diagnostics import run_diagnostics
-from datetime import datetime
+from datetime import datetime, timedelta
 from bot.services.sync_service import SyncService
+from sqlalchemy import select, func
+import bot.services.database as db
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +27,7 @@ async def cmd_alerts(message: types.Message, config):
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.add(
         types.InlineKeyboardButton("📊 Последние ошибки", callback_data="alerts_errors"),
-        types.InlineKeyboardButton("🔔 Тест алерта", callback_data="alerts_test"),
         types.InlineKeyboardButton("ℹ️ Статус системы", callback_data="alerts_status"),
-        types.InlineKeyboardButton("🔍 Диагностика GScript", callback_data="alerts_gs_diagnostics")
     )
 
     await message.answer(
@@ -37,68 +36,85 @@ async def cmd_alerts(message: types.Message, config):
         reply_markup=keyboard
     )
 
-# Обработчик для просмотра последних ошибок
+# Обработчик для просмотра последних ошибок (за последние 24 часа, только ERROR, максимум 3)
 async def callback_alerts_errors(callback_query: types.CallbackQuery):
-    """Показывает последние ошибки"""
-    summary = error_collector.get_summary()
+    cutoff = datetime.now() - timedelta(days=1)
 
-    # Экранируем специальные символы для MarkdownV2
-    summary_escaped = escape_markdown_v2(summary)
-
-    await callback_query.message.edit_text(
-        f"📊 {bold('Последние ошибки')}\n\n{summary_escaped}",
-        reply_markup=types.InlineKeyboardMarkup().add(
-            types.InlineKeyboardButton("◀️ Назад", callback_data="alerts_menu")
+    async with db.async_session() as session:
+        result = await session.execute(
+            select(db.ErrorLog)
+            .where(
+                db.ErrorLog.level == "ERROR",
+                db.ErrorLog.timestamp >= cutoff,
+            )
+            .order_by(db.ErrorLog.timestamp.desc())
+            .limit(3)
         )
-    )
-    await callback_query.answer()
+        errors = result.scalars().all()
 
-# Обработчик для теста алертов
-async def callback_alerts_test(callback_query: types.CallbackQuery):
-    """Генерирует тестовую ошибку для проверки системы алертов"""
-    try:
-        # Генерируем тестовую ошибку
-        logger.error("Тестовый алерт: Это тестовое сообщение для проверки системы алертов")
+    if not errors:
+        text = "за последние сутки не зафиксированы ошибки с типом ERROR"
+    else:
+        lines = []
+        for i, err in enumerate(errors, 1):
+            ts = err.timestamp.strftime('%Y-%m-%d %H:%M:%S') if err.timestamp else ""
+            module = (err.module or err.logger_name or "unknown")
+            message = (err.message or "")[:300]
+            lines.append(f"{i}. {ts} — {module}\n{message}")
+        text = "\n\n".join(lines)
 
-        # Также генерируем ошибку с трейсбеком
-        raise ValueError("Тестовая ошибка с трейсбеком")
-    except ValueError:
-        logger.error("Тестовая ошибка с трейсбеком", exc_info=True)
-
-    await callback_query.answer("✅ Тестовые алерты отправлены!", show_alert=True)
-
-    # Возвращаемся в меню
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        types.InlineKeyboardButton("📊 Последние ошибки", callback_data="alerts_errors"),
-        types.InlineKeyboardButton("🔔 Тест алерта", callback_data="alerts_test"),
-        types.InlineKeyboardButton("ℹ️ Статус системы", callback_data="alerts_status")
+    await callback_alerts_menu_render(
+        callback_query,
+        title=f"📊 {bold('Последние ошибки')}\n",
+        body=text,
     )
 
-    await callback_query.message.edit_text(
-        f"🚨 {bold('Управление системой алертов')}\n\n"
-        f"Тестовые алерты отправлены\\. Проверьте личные сообщения\\.",
-        reply_markup=keyboard
-    )
+# Удалён обработчик теста алертов — отправка алертов администраторам отключена
 
 # Обработчик для статуса системы
 async def callback_alerts_status(callback_query: types.CallbackQuery, config):
-    """Показывает статус системы алертов"""
-    status_text = (
-        f"ℹ️ {bold('Статус системы алертов')}\n\n"
-        f"✅ Система алертов: {'Активна' if config.admin_ids else 'Отключена'}\n"
-        f"👥 Администраторы: {len(config.admin_ids)}\n"
-        f"📊 Ошибок в буфере: {len(error_collector.errors)}\n"
-        f"🕐 Текущее время: {escape_markdown_v2(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}"
-    )
+    """Показывает краткую статистику по ошибкам за последние сутки (CRITICAL, ERROR, WARNING) по модулям"""
+    cutoff = datetime.now() - timedelta(days=1)
 
-    await callback_query.message.edit_text(
-        status_text,
-        reply_markup=types.InlineKeyboardMarkup().add(
-            types.InlineKeyboardButton("◀️ Назад", callback_data="alerts_menu")
+    async with db.async_session() as session:
+        result = await session.execute(
+            select(
+                db.ErrorLog.module,
+                db.ErrorLog.level,
+                func.count().label("cnt"),
+            )
+            .where(
+                db.ErrorLog.timestamp >= cutoff,
+                db.ErrorLog.level.in_(["CRITICAL", "ERROR", "WARNING"]),
+            )
+            .group_by(db.ErrorLog.module, db.ErrorLog.level)
         )
+        rows = result.all()
+
+    if not rows:
+        body = "за последние сутки не зафиксированы ошибки с типом Critical, Error, Warning"
+    else:
+        # Собираем статистику: модуль -> {level: count}
+        stats = {}
+        for module, level, cnt in rows:
+            key = module or "unknown"
+            if key not in stats:
+                stats[key] = {"CRITICAL": 0, "ERROR": 0, "WARNING": 0}
+            stats[key][level] = cnt
+
+        lines = []
+        for module, level_counts in sorted(stats.items()):
+            m = module
+            lines.append(
+                f"{m} — Critical: {level_counts['CRITICAL']}, Error: {level_counts['ERROR']}, Warning: {level_counts['WARNING']}"
+            )
+        body = "\n".join(lines)
+
+    await callback_alerts_menu_render(
+        callback_query,
+        title=f"ℹ️ {bold('Статус системы за последние сутки')}\n\n",
+        body=body,
     )
-    await callback_query.answer()
 
 # Обработчик для возврата в меню алертов
 async def callback_alerts_menu(callback_query: types.CallbackQuery):
@@ -106,7 +122,6 @@ async def callback_alerts_menu(callback_query: types.CallbackQuery):
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.add(
         types.InlineKeyboardButton("📊 Последние ошибки", callback_data="alerts_errors"),
-        types.InlineKeyboardButton("🔔 Тест алерта", callback_data="alerts_test"),
         types.InlineKeyboardButton("ℹ️ Статус системы", callback_data="alerts_status")
     )
 
@@ -117,41 +132,17 @@ async def callback_alerts_menu(callback_query: types.CallbackQuery):
     )
     await callback_query.answer()
 
-# Обработчик для диагностики Google Script
-async def callback_alerts_gs_diagnostics(callback_query: types.CallbackQuery, config):
-    """Запускает диагностику Google Script"""
-    await callback_query.answer("🔍 Запуск диагностики...")
+async def callback_alerts_menu_render(callback_query: types.CallbackQuery, title: str, body: str):
+    keyboard = types.InlineKeyboardMarkup().add(
+        types.InlineKeyboardButton("◀️ Назад", callback_data="alerts_menu")
+    )
+    await callback_query.message.edit_text(
+        f"{escape_markdown_v2(title + body)}",
+        reply_markup=keyboard
+    )
+    await callback_query.answer()
 
-    try:
-        # Отправляем сообщение о начале диагностики
-        await callback_query.message.edit_text(
-            f"🔍 {bold('Диагностика Google Script')}\n\n"
-            f"⏳ Выполняется диагностика...",
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("◀️ Назад", callback_data="alerts_menu")
-            )
-        )
-
-        # Запускаем диагностику
-        report = await run_diagnostics(config.api_url, config)
-
-        # Отправляем отчет
-        await callback_query.message.edit_text(
-            report,
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("◀️ Назад", callback_data="alerts_menu")
-            )
-        )
-
-    except Exception as e:
-        logger.error(f"Ошибка при диагностике Google Script: {e}")
-        await callback_query.message.edit_text(
-            f"❌ {bold('Ошибка диагностики')}\n\n"
-            f"Не удалось выполнить диагностику: `{escape_markdown_v2(str(e))}`",
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("◀️ Назад", callback_data="alerts_menu")
-            )
-        )
+# Удалён обработчик диагностики Google Script — вне требований текущей задачи
 
 # Обработчик команды /sync для управления синхронизацией БД
 async def cmd_sync(message: types.Message, config):
@@ -377,13 +368,6 @@ def register_admin_handlers(dp: Dispatcher, config):
     )
 
     dp.register_callback_query_handler(
-        callback_alerts_test,
-        admin_filter,
-        lambda c: c.data == "alerts_test",
-        state="*"
-    )
-
-    dp.register_callback_query_handler(
         lambda c: callback_alerts_status(c, config),
         admin_filter,
         lambda c: c.data == "alerts_status",
@@ -397,12 +381,6 @@ def register_admin_handlers(dp: Dispatcher, config):
         state="*"
     )
 
-    dp.register_callback_query_handler(
-        lambda c: callback_alerts_gs_diagnostics(c, config),
-        admin_filter,
-        lambda c: c.data == "alerts_gs_diagnostics",
-        state="*"
-    )
 
     # Регистрация callback-обработчиков для синхронизации
     dp.register_callback_query_handler(

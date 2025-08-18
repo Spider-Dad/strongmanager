@@ -60,13 +60,10 @@ async def main():
         storage = MemoryStorage()
         dp = Dispatcher(bot, storage=storage)
 
-        # Настройка системы алертов
-        if config.admin_ids:
-            logger.info(f"Настройка системы алертов для администраторов: {config.admin_ids}")
-            alert_handler, db_log_handler = setup_logger_with_alerts(bot, config.admin_ids)
-        else:
-            logger.warning("Список администраторов не настроен. Система алертов отключена.")
-            _, db_log_handler = setup_logger_with_alerts()
+        # Настройка логирования без отправки алертов в Telegram
+        # Оставляем только запись логов в файлы и БД
+        logger.info("Настройка логирования (без Telegram-алертов)")
+        _, db_log_handler = setup_logger_with_alerts()
 
         # Настройка middlewares
         setup_middlewares(dp, config)
