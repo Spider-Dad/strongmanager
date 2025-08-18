@@ -114,6 +114,17 @@ def get_training_state(lessons: List[Lesson], now: Optional[datetime] = None) ->
     return "active"
 
 
+def get_status_emoji(state: str) -> str:
+    """Возвращает эмодзи для статуса урока/тренинга."""
+    if state == "active":
+        return "🟡"
+    elif state == "completed":
+        return "🟢"
+    elif state == "not_started":
+        return "🔴"
+    return ""
+
+
 
 
 

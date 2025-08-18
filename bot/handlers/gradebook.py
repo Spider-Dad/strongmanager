@@ -15,8 +15,11 @@ from bot.services.gradebook_service import (
     STATUS_LATE,
     STATUS_NO_BEFORE_DEADLINE,
     STATUS_NO_AFTER_DEADLINE,
+    get_status_emoji,
+    get_training_state,
+    get_lesson_state,
 )
-from bot.utils.markdown import escape_markdown_v2, bold
+from bot.utils.markdown import escape_markdown_v2, bold, italic
 from bot.keyboards.gradebook import (
     kb_progress_filters,
     kb_training_select,
@@ -207,16 +210,19 @@ async def cb_progress_router(call: CallbackQuery, config):
             end = start + page_size
             page_ids = ordered_ids[start:end]
 
-            lines = ["📊 " + bold("Детализация студентов")]
+            # Используем полный хедер с легендой
+            lines = await _build_header_with_legend(session, training_id, lesson_id, is_admin=is_admin)
+
             for sid in page_ids:
                 info = students.get(sid, {})
                 last = info.get("last_name") or ""
                 first = info.get("first_name") or ""
                 counters = per_student[sid]
-                line = f"Студент: {last} {first}\n✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"
-                lines.append(escape_markdown_v2(line))
+                lines.append(italic("Студент") + escape_markdown_v2(f": {last} {first}"))
+                lines.append(escape_markdown_v2(f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
+                lines.append("")  # Пустая строка для разделения студентов
 
-            text = "\n\n".join(lines)
+            text = "\n".join(lines)
 
             # Построение базового префикса для пагинации
             base = "gb:page:students"
@@ -225,8 +231,8 @@ async def cb_progress_router(call: CallbackQuery, config):
             if lesson_id is not None:
                 base += f":lesson:{lesson_id}"
 
-            await call.message.edit_text(text)
-            await call.message.edit_reply_markup(reply_markup=kb_pagination(page, total_pages, base))
+            await call.message.edit_text(text, parse_mode='MarkdownV2')
+            await call.message.edit_reply_markup(reply_markup=kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base))
             await call.answer()
             return
 
@@ -271,14 +277,23 @@ async def cb_progress_router(call: CallbackQuery, config):
                     return
 
                 from bot.services.gradebook_service import get_lesson_state
-                opts = []
+                # Сортируем уроки: активный наверх, затем по номеру урока
+                lesson_data = []
                 for l in lessons:
                     state = get_lesson_state(l)
-                    state_emoji = {"active": "🟡", "completed": "🟢", "not_started": "🔴"}[state]
+                    state_emoji = get_status_emoji(state)
                     allowed = state != "not_started"
                     # Добавляем номер урока, если есть
-                    lesson_num = f"№{l.lesson_number}" if l.lesson_number is not None else ""
-                    opts.append((l.id, f"{state_emoji} {lesson_num} {l.title or f'Lesson {l.id}'}", allowed))
+                    lesson_num = f"№ {l.lesson_number}. " if l.lesson_number is not None else ""
+                    title = f"{state_emoji} {lesson_num}{l.title or f'Lesson {l.id}'}"
+                    # Для сортировки: активный урок (priority=0), остальные по номеру урока
+                    priority = 0 if state == "active" else 1
+                    sort_key = (priority, l.lesson_number or 0)
+                    lesson_data.append((l.id, title, allowed, sort_key))
+
+                # Сортируем и формируем opts
+                lesson_data.sort(key=lambda x: x[3])
+                opts = [(lesson_id, title, allowed) for lesson_id, title, allowed, _ in lesson_data]
                 opts = opts[:10]
                 await call.message.edit_reply_markup(reply_markup=kb_lesson_select_with_status(opts, training_id, has_more=len(lessons) > 10))
                 await call.answer()
@@ -337,6 +352,52 @@ def register_gradebook_handlers(dp: Dispatcher, config):
 from typing import Optional
 
 
+async def _build_header_with_legend(session, training_id: Optional[int], lesson_id: Optional[int], is_admin: bool = False) -> list[str]:
+    """Формирует хедер с легендой для отображения статистики."""
+    # header with filters
+    if training_id is None:
+        tr_line = f"{bold('Тренинг')}: по всем 🟡активным и 🟢завершенным тренингам"
+    else:
+        from sqlalchemy import select
+        from bot.services.database import Training, Lesson
+        tr = await session.execute(select(Training).where(Training.id == training_id))
+        t = tr.scalars().first()
+        # Получаем все уроки тренинга для определения статуса
+        lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == training_id))
+        training_lessons = lessons_res.scalars().all()
+        state = get_training_state(training_lessons)
+        emoji = get_status_emoji(state)
+        tr_line = f"{bold('Тренинг')}: {emoji}{t.title if t and t.title else training_id}"
+    if lesson_id is None:
+        ls_line = f"{bold('Урок')}: по всем 🟡активным и 🟢завершенным урокам"
+    else:
+        from sqlalchemy import select
+        from bot.services.database import Lesson
+        lr = await session.execute(select(Lesson).where(Lesson.id == lesson_id))
+        l = lr.scalars().first()
+        if l:
+            state = get_lesson_state(l)
+            emoji = get_status_emoji(state)
+            ls_line = f"{bold('Урок')}: {emoji}{l.title if l.title else lesson_id}"
+        else:
+            ls_line = f"{bold('Урок')}: {lesson_id}"
+
+    title = "📈 " + bold("Статистика по наставникам") if is_admin else "📊 " + bold("Статистика ваших студентов")
+
+    return [
+        title,
+        "",
+        escape_markdown_v2(tr_line),
+        escape_markdown_v2(ls_line),
+        "",
+        escape_markdown_v2("🟢Урок завершен. ✅Ответ вовремя."),
+        escape_markdown_v2("🟢Урок завершен. ⏰Ответ с опозданием."),
+        escape_markdown_v2("🟡Урок активный. ⌛Ответ вовремя."),
+        escape_markdown_v2("🟢Урок завершен. ❌Ответа нет."),
+        "",
+    ]
+
+
 async def _render_students_list(message: types.Message, session, mentor_id: int, training_id: Optional[int], lesson_id: Optional[int], page: int):
     from bot.services.gradebook_service import build_mentor_overview
     summary = await build_mentor_overview(session, mentor_id=mentor_id, training_id=training_id, lesson_id=lesson_id, include_not_started=False)
@@ -376,42 +437,13 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
     end = start + page_size
     page_ids = ordered_ids[start:end]
 
-    # header with filters
-    if training_id is None:
-        tr_line = f"{bold('Тренинг')}: по всем активным и завершенным тренингам"
-    else:
-        from sqlalchemy import select
-        from bot.services.database import Training
-        tr = await session.execute(select(Training).where(Training.id == training_id))
-        t = tr.scalars().first()
-        tr_line = f"{bold('Тренинг')}: {t.title if t and t.title else training_id}"
-    if lesson_id is None:
-        ls_line = f"{bold('Урок')}: по всем активным и завершенным урокам"
-    else:
-        from sqlalchemy import select
-        from bot.services.database import Lesson
-        lr = await session.execute(select(Lesson).where(Lesson.id == lesson_id))
-        l = lr.scalars().first()
-        ls_line = f"{bold('Урок')}: {l.title if l and l.title else lesson_id}"
-
-    lines = [
-        "📊 " + bold("Статистика ваших студентов"),
-        "",
-        escape_markdown_v2(tr_line),
-        escape_markdown_v2(ls_line),
-        "",
-        escape_markdown_v2("✅ Урок завершен. Ответ вовремя"),
-        escape_markdown_v2("⏰ Урок завершен. Ответ с опозданием"),
-        escape_markdown_v2("⌛ Урок активный. Ответ вовремя"),
-        escape_markdown_v2("❌ Урок завершен. Ответа нет"),
-        "",
-    ]
+    lines = await _build_header_with_legend(session, training_id, lesson_id, is_admin=False)
     for sid in page_ids:
         info = students.get(sid, {})
         last = info.get("last_name") or ""
         first = info.get("first_name") or ""
         counters = per_student[sid]
-        lines.append(escape_markdown_v2(f"Студент: {last} {first}"))
+        lines.append(italic("Студент") + escape_markdown_v2(f": {last} {first}"))
         lines.append(escape_markdown_v2(f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
         lines.append("")  # Пустая строка для разделения студентов
 
@@ -455,8 +487,8 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
             last = info.get("last_name") or ""
             first = info.get("first_name") or ""
             counters = per_student[sid]
-            student_rows.append((f"Студент: {last} {first}", f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
-        mentor_name = f"Наставник: {m.last_name or ''} {m.first_name or ''}".strip()
+            student_rows.append((f"*Студент*: {last} {first}", f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
+        mentor_name = f"**Наставник**: {m.last_name or ''} {m.first_name or ''}".strip()
         if student_rows:  # Добавляем только наставников с назначенными студентами
             blocks.append((mentor_name, student_rows, len(student_rows)))
 
@@ -491,34 +523,7 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
     page = max(1, min(page, total_pages))
     page_blocks = pages[page - 1] if pages else []
 
-    # header with filters
-    if training_id is None:
-        tr_line = f"{bold('Тренинг')}: по всем активным и завершенным тренингам"
-    else:
-        from bot.services.database import Training
-        tr = await session.execute(select(Training).where(Training.id == training_id))
-        t = tr.scalars().first()
-        tr_line = f"{bold('Тренинг')}: {t.title if t and t.title else training_id}"
-    if lesson_id is None:
-        ls_line = f"{bold('Урок')}: по всем активным и завершенным урокам"
-    else:
-        from bot.services.database import Lesson
-        lr = await session.execute(select(Lesson).where(Lesson.id == lesson_id))
-        l = lr.scalars().first()
-        ls_line = f"{bold('Урок')}: {l.title if l and l.title else lesson_id}"
-
-    lines = [
-        "📈 " + bold("Статистика по наставникам"),
-        "",
-        escape_markdown_v2(tr_line),
-        escape_markdown_v2(ls_line),
-        "",
-        escape_markdown_v2("✅ Урок завершен. Ответ вовремя"),
-        escape_markdown_v2("⏰ Урок завершен. Ответ с опозданием"),
-        escape_markdown_v2("⌛ Урок активный. Ответа нет"),
-        escape_markdown_v2("❌ Урок завершен. Ответа нет"),
-        "",
-    ]
+    lines = await _build_header_with_legend(session, training_id, lesson_id, is_admin=True)
     for mentor_name, rows in page_blocks:
         lines.append(escape_markdown_v2(mentor_name))
         lines.append("")  # Пустая строка для разделения от блока студентов

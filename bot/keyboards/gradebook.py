@@ -42,19 +42,21 @@ def kb_pagination(page: int, total_pages: int, base_cb: str) -> InlineKeyboardMa
 
 def kb_filters_with_pagination(training_id: Optional[int], lesson_id: Optional[int], page: int, total_pages: int, base_cb: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=2)
-    # Filters row
-    lesson_cb = f"gb:filter:lesson:tr:{training_id}" if training_id else "gb:filter:lesson"
-    kb.add(
-        InlineKeyboardButton("Фильтр: тренинг", callback_data="gb:filter:training"),
-        InlineKeyboardButton("Фильтр: урок", callback_data=lesson_cb),
-    )
-    # Pagination row - в одном ряду
+    # Pagination row наверх - в одном ряду
     prev_page = max(1, page - 1)
     next_page = min(total_pages, page + 1)
     kb.row(
         InlineKeyboardButton("←", callback_data=f"{base_cb}:p:{prev_page}"),
         InlineKeyboardButton(f"{page}/{total_pages}", callback_data="gb:nop"),
         InlineKeyboardButton("→", callback_data=f"{base_cb}:p:{next_page}"),
+    )
+    # Filters row
+    lesson_cb = f"gb:filter:lesson:tr:{training_id}" if training_id else "gb:filter:lesson"
+    training_btn_text = "Сменить тренинг" if training_id else "Фильтр: тренинг"
+    lesson_btn_text = "Сменить урок" if lesson_id else "Фильтр: урок"
+    kb.add(
+        InlineKeyboardButton(training_btn_text, callback_data="gb:filter:training"),
+        InlineKeyboardButton(lesson_btn_text, callback_data=lesson_cb),
     )
     # Сброс фильтров внизу
     kb.add(InlineKeyboardButton("Сбросить фильтры", callback_data="gb:back"))
