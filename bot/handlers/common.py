@@ -5,6 +5,8 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 
 from bot.handlers.auth import Registration, check_auth
 from bot.utils.markdown import bold, italic, escape_markdown_v2
+from bot.keyboards.main_menu import kb_main_menu_admin, kb_main_menu_mentor, kb_back_to_main
+from bot.services.database import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -29,25 +31,7 @@ async def cmd_start(message: types.Message, state: FSMContext, config):
             escape_markdown_v2("Выберите действие:"),
         ]
 
-        # Клавиатура: row_width=1
-        kb = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
-        kb.add(
-            types.KeyboardButton("/start"),
-        )
-        kb.add(
-            types.KeyboardButton("/about"),
-        )
-        kb.add(
-            types.KeyboardButton("/progress_admin"),
-        )
-        kb.add(
-            types.KeyboardButton("/sync"),
-        )
-        kb.add(
-            types.KeyboardButton("/alerts"),
-        )
-
-        await message.answer("\n".join(lines), parse_mode='MarkdownV2', reply_markup=kb)
+        await message.answer("\n".join(lines), parse_mode='MarkdownV2', reply_markup=kb_main_menu_admin())
     else:
         # Проверяем, авторизован ли обычный пользователь
         is_authorized = await check_auth(user_id)
@@ -64,12 +48,7 @@ async def cmd_start(message: types.Message, state: FSMContext, config):
                 escape_markdown_v2("Выберите действие:"),
             ]
 
-            kb = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
-            kb.add(types.KeyboardButton("/start"))
-            kb.add(types.KeyboardButton("/about"))
-            kb.add(types.KeyboardButton("/progress"))
-
-            await message.answer("\n".join(lines), parse_mode='MarkdownV2', reply_markup=kb)
+            await message.answer("\n".join(lines), parse_mode='MarkdownV2', reply_markup=kb_main_menu_mentor())
         else:
             # Для неавторизованных пользователей
             await message.answer(
@@ -131,7 +110,7 @@ async def cmd_about(message: types.Message, config):
             escape_markdown_v2("⌛ -  Ответ на активный урок студентом предоставлен вовремя (на момент отчета урок активный)"),
             escape_markdown_v2("❌ -  Ответа на завершенный урок не предоставлен."),
         ]
-        await message.answer("\n".join(lines), parse_mode='MarkdownV2')
+        await message.answer("\n".join(lines), parse_mode='MarkdownV2', reply_markup=kb_back_to_main())
     else:
         # Справка по функциональным возможностям (Наставник)
         lines = [
@@ -164,7 +143,7 @@ async def cmd_about(message: types.Message, config):
             escape_markdown_v2("⌛ -  Ответ на активный урок студентом предоставлен вовремя (на момент отчета урок активный)"),
             escape_markdown_v2("❌ -  Ответа на завершенный урок не предоставлен."),
         ]
-        await message.answer("\n".join(lines), parse_mode='MarkdownV2')
+        await message.answer("\n".join(lines), parse_mode='MarkdownV2', reply_markup=kb_back_to_main())
 
 # Команда /status удалена
 
@@ -265,4 +244,72 @@ def register_common_handlers(dp: Dispatcher, config):
         handle_text_no_state,
         state=None,
         content_types=types.ContentType.TEXT
+    )
+
+    # Роутер кликов главного меню (inline)
+    from aiogram.types import CallbackQuery
+
+    async def main_menu_router(callback: CallbackQuery):
+        data = callback.data or ""
+        user_id = callback.from_user.id
+        is_admin = user_id in config.admin_ids
+        # Стартовое меню
+        if data == "mm:start":
+            fake_message = callback.message
+            # Ререндерим старт по роли
+            class DummyState:
+                async def finish(self):
+                    return
+            state = DummyState()
+            if is_admin:
+                await cmd_start(fake_message, state, config)
+            else:
+                await cmd_start(fake_message, state, config)
+            await callback.answer()
+            return
+        if data == "mm:about":
+            await cmd_about(callback.message, config)
+            await callback.answer()
+            return
+        if data == "mm:progress":
+            if is_admin:
+                # Для админа открываем список админа
+                from bot.handlers.gradebook import _render_admin_list
+                async for session in get_session():
+                    await _render_admin_list(callback.message, session, training_id=None, lesson_id=None, page=1, edit=True)
+                await callback.answer()
+            else:
+                from sqlalchemy import select
+                from bot.services.database import Mentor
+                async for session in get_session():
+                    res = await session.execute(select(Mentor).where(Mentor.telegram_id == user_id))
+                    mentor = res.scalars().first()
+                    if mentor:
+                        from bot.handlers.gradebook import _render_students_list
+                        await _render_students_list(callback.message, session, mentor_id=mentor.id, training_id=None, lesson_id=None, page=1, edit=True)
+                    else:
+                        await callback.answer("Нет доступа", show_alert=True)
+                await callback.answer()
+            return
+        if data == "mm:sync":
+            if user_id in config.admin_ids:
+                from bot.handlers.admin import render_sync_menu
+                await render_sync_menu(callback.message)
+                await callback.answer()
+            else:
+                await callback.answer("Доступно только администраторам", show_alert=True)
+            return
+        if data == "mm:alerts":
+            if user_id in config.admin_ids:
+                from bot.handlers.admin import render_alerts_menu
+                await render_alerts_menu(callback.message)
+                await callback.answer()
+            else:
+                await callback.answer("Доступно только администраторам", show_alert=True)
+            return
+
+    dp.register_callback_query_handler(
+        main_menu_router,
+        lambda c: c.data and c.data.startswith("mm:"),
+        state="*"
     )
