@@ -136,7 +136,7 @@ async def callback_alerts_status(callback_query: types.CallbackQuery, config):
 # Обработчик для возврата в меню алертов
 async def callback_alerts_menu(callback_query: types.CallbackQuery):
     """Возвращает в главное меню алертов"""
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
         types.InlineKeyboardButton("📊 Последние ошибки", callback_data="alerts_errors"),
         types.InlineKeyboardButton("ℹ️ Статус системы", callback_data="alerts_status")
@@ -168,7 +168,7 @@ async def cmd_sync(message: types.Message, config):
     """Показывает меню управления синхронизацией БД"""
     logger.info(f"Команда /sync от пользователя {message.from_user.id} ({message.from_user.username})")
 
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
         types.InlineKeyboardButton("🔄 Синхронизировать сейчас", callback_data="sync_now"),
         types.InlineKeyboardButton("📊 Статус синхронизации", callback_data="sync_status"),
@@ -179,7 +179,8 @@ async def cmd_sync(message: types.Message, config):
         f"🗄️ {bold('Управление синхронизацией БД')}\n\n"
         f"Синхронизация данных из Google Sheets в SQLite\\.\n"
         f"Выберите действие:",
-        reply_markup=keyboard
+        reply_markup=keyboard,
+        parse_mode='MarkdownV2'
     )
 
 # Обработчик для запуска синхронизации
@@ -197,7 +198,8 @@ async def callback_sync_now(callback_query: types.CallbackQuery):
     await callback_query.message.edit_text(
         f"🔄 {bold('Синхронизация запущена')}\n\n"
         f"⏳ Пожалуйста, подождите\\.\\.\\.\n"
-        f"Это может занять несколько минут\\."
+        f"Это может занять несколько минут\\.",
+        parse_mode='MarkdownV2'
     )
 
     # Запускаем синхронизацию
@@ -218,20 +220,19 @@ async def callback_sync_now(callback_query: types.CallbackQuery):
     else:
         message_text = (
             f"❌ {bold('Ошибка синхронизации')}\n\n"
-            f"{escape_markdown_v2(result.get('error', 'Неизвестная ошибка'))}"
+            f"{escape_markdown_v2(result.get('error', 'Неизвестная ошибка'))}\n"
+            f"Смотрите логи приложения"
         )
 
-    # Возвращаемся в меню
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        types.InlineKeyboardButton("🔄 Синхронизировать сейчас", callback_data="sync_now"),
-        types.InlineKeyboardButton("📊 Статус синхронизации", callback_data="sync_status"),
-        types.InlineKeyboardButton("⚙️ Настройки", callback_data="sync_settings")
+    # Кнопка назад в меню синхронизации
+    keyboard = types.InlineKeyboardMarkup(row_width=1).add(
+        types.InlineKeyboardButton("◀️ Назад", callback_data="sync_menu")
     )
 
     await callback_query.message.edit_text(
         message_text,
-        reply_markup=keyboard
+        reply_markup=keyboard,
+        parse_mode='MarkdownV2'
     )
 
 # Обработчик для просмотра статуса синхронизации
@@ -252,8 +253,6 @@ async def callback_sync_status(callback_query: types.CallbackQuery):
             f"📊 Синхронизация еще не выполнялась\n"
             f"🔄 Автосинхронизация: {'Включена' if status['auto_sync_enabled'] else 'Отключена'}"
         )
-        if status['auto_sync_enabled']:
-            message_text += f"\n⏱️ Интервал: каждые {status['sync_interval_minutes']} мин\\."
     else:
         # Форматируем дату
         last_sync_date = status['last_sync_date']
@@ -286,16 +285,25 @@ async def callback_sync_status(callback_query: types.CallbackQuery):
 
         message_text += f"\n🔄 Автосинхронизация: {'Включена' if status['auto_sync_enabled'] else 'Отключена'}"
         if status['auto_sync_enabled']:
-            message_text += f"\n⏱️ Интервал: каждые {status['sync_interval_minutes']} мин\\."
+            try:
+                next_time = None
+                if isinstance(last_sync_date, datetime):
+                    next_time = last_sync_date + timedelta(minutes=status['sync_interval_minutes'])
+                if next_time:
+                    next_time_str = next_time.strftime('%d\\.%m\\.%Y %H:%M:%S')
+                    message_text += f"\n📅 Следующая синхронизация: {next_time_str}"
+            except Exception:
+                pass
 
         if status['is_syncing']:
             message_text += f"\n\n⏳ {bold('Синхронизация выполняется сейчас!')}"
 
     await callback_query.message.edit_text(
         message_text,
-        reply_markup=types.InlineKeyboardMarkup().add(
+        reply_markup=types.InlineKeyboardMarkup(row_width=1).add(
             types.InlineKeyboardButton("◀️ Назад", callback_data="sync_menu")
-        )
+        ),
+        parse_mode='MarkdownV2'
     )
     await callback_query.answer()
 
@@ -318,7 +326,7 @@ async def callback_sync_settings(callback_query: types.CallbackQuery):
         f"\n{bold('Переменные окружения:')}\n"
         f"• SYNC\\_INTERVAL\\_MINUTES \\- интервал автосинхронизации в минутах\n"
         f"  \\(0 \\= отключена\\)\n\n"
-        f"ℹ️ Для изменения настроек необходимо перезапустить бота\\."
+        f"ℹ️ Для изменения интервала необходимо изменить значение переменной окружения и перузапустить бота на сервере\\."
     )
 
     await callback_query.message.edit_text(
@@ -332,7 +340,7 @@ async def callback_sync_settings(callback_query: types.CallbackQuery):
 # Обработчик для возврата в меню синхронизации
 async def callback_sync_menu(callback_query: types.CallbackQuery):
     """Возвращает в главное меню синхронизации"""
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
         types.InlineKeyboardButton("🔄 Синхронизировать сейчас", callback_data="sync_now"),
         types.InlineKeyboardButton("📊 Статус синхронизации", callback_data="sync_status"),
@@ -343,7 +351,8 @@ async def callback_sync_menu(callback_query: types.CallbackQuery):
         f"🗄️ {bold('Управление синхронизацией БД')}\n\n"
         f"Синхронизация данных из Google Sheets в SQLite\\.\n"
         f"Выберите действие:",
-        reply_markup=keyboard
+        reply_markup=keyboard,
+        parse_mode='MarkdownV2'
     )
     await callback_query.answer()
 
