@@ -78,7 +78,7 @@ async def process_email(message: types.Message, state: FSMContext, config):
         await message.answer(
             f"{bold('Вы успешно зарегистрированы в системе оповещений как наставник!')}\n\n"
             f"Теперь вы будете получать уведомления о действиях ваших студентов\\.\n\n"
-            f"Для просмотра доступных команд используйте /help\\."
+            f"Откройте /start для главного меню или /about для справки\."
         )
 
         logger.info(f"Ментор {message.from_user.id} ({email}) успешно зарегистрирован")

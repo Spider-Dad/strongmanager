@@ -20,7 +20,7 @@ class AuthMiddleware(BaseMiddleware):
             return
 
         # Пропускаем служебные сообщения
-        if message.is_command() and message.get_command() in ['/start', '/help', '/about']:
+        if message.is_command() and message.get_command() in ['/start', '/about']:
             return
 
         # Проверяем авторизацию
