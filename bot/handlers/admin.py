@@ -24,7 +24,7 @@ async def cmd_alerts(message: types.Message, config):
     logger.info(f"Список администраторов: {config.admin_ids}")
     logger.info(f"Является ли пользователь администратором: {message.from_user.id in config.admin_ids}")
 
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
         types.InlineKeyboardButton("📊 Последние ошибки", callback_data="alerts_errors"),
         types.InlineKeyboardButton("ℹ️ Статус системы", callback_data="alerts_status"),
@@ -33,7 +33,8 @@ async def cmd_alerts(message: types.Message, config):
     await message.answer(
         f"🚨 {bold('Управление системой алертов')}\n\n"
         f"Выберите действие:",
-        reply_markup=keyboard
+        reply_markup=keyboard,
+        parse_mode='MarkdownV2'
     )
 
 # Обработчик для просмотра последних ошибок (за последние 24 часа, только ERROR, максимум 3)
@@ -44,7 +45,7 @@ async def callback_alerts_errors(callback_query: types.CallbackQuery):
         result = await session.execute(
             select(db.ErrorLog)
             .where(
-                db.ErrorLog.level == "ERROR",
+                db.ErrorLog.level.in_(["ERROR", "CRITICAL"]),
                 db.ErrorLog.timestamp >= cutoff,
             )
             .order_by(db.ErrorLog.timestamp.desc())
@@ -53,20 +54,29 @@ async def callback_alerts_errors(callback_query: types.CallbackQuery):
         errors = result.scalars().all()
 
     if not errors:
-        text = "за последние сутки не зафиксированы ошибки с типом ERROR"
+        body = (
+            "Последние ошибки бота с типом ERROR, CRITICAL\n\n"
+            "за последние сутки не зафиксированы ошибки"
+        )
     else:
-        lines = []
-        for i, err in enumerate(errors, 1):
+        lines = [
+            "Последние ошибки бота с типом ERROR, CRITICAL",
+            "",
+        ]
+        for err in errors:
             ts = err.timestamp.strftime('%Y-%m-%d %H:%M:%S') if err.timestamp else ""
             module = (err.module or err.logger_name or "unknown")
-            message = (err.message or "")[:300]
-            lines.append(f"{i}. {ts} — {module}\n{message}")
-        text = "\n\n".join(lines)
+            level = (err.level or "").upper()
+            message = (err.message or "")[:500]
+            lines.append(f"{level} {ts} — {module}")
+            lines.append(f"{message}")
+            lines.append("")
+        body = "\n".join(lines).rstrip()
 
     await callback_alerts_menu_render(
         callback_query,
-        title=f"📊 {bold('Последние ошибки')}\n",
-        body=text,
+        title=f"📊 {bold('Последние ошибки')}\n\n",
+        body=body,
     )
 
 # Удалён обработчик теста алертов — отправка алертов администраторам отключена
@@ -92,7 +102,10 @@ async def callback_alerts_status(callback_query: types.CallbackQuery, config):
         rows = result.all()
 
     if not rows:
-        body = "за последние сутки не зафиксированы ошибки с типом Critical, Error, Warning"
+        body = (
+            "Количество ошибок по типам в модулях:\n\n"
+            "за последние сутки не зафиксированы ошибки с типом CRITICAL, ERROR, WARNING"
+        )
     else:
         # Собираем статистику: модуль -> {level: count}
         stats = {}
@@ -102,13 +115,17 @@ async def callback_alerts_status(callback_query: types.CallbackQuery, config):
                 stats[key] = {"CRITICAL": 0, "ERROR": 0, "WARNING": 0}
             stats[key][level] = cnt
 
-        lines = []
+        lines = [
+            "Количество ошибок по типам в модулях:",
+            "",
+        ]
         for module, level_counts in sorted(stats.items()):
-            m = module
+            lines.append(f"{module}:")
             lines.append(
-                f"{m} — Critical: {level_counts['CRITICAL']}, Error: {level_counts['ERROR']}, Warning: {level_counts['WARNING']}"
+                f"CRITICAL: {level_counts['CRITICAL']}, ERROR: {level_counts['ERROR']}, WARNING: {level_counts['WARNING']}"
             )
-        body = "\n".join(lines)
+            lines.append("")
+        body = "\n".join(lines).rstrip()
 
     await callback_alerts_menu_render(
         callback_query,
@@ -128,7 +145,8 @@ async def callback_alerts_menu(callback_query: types.CallbackQuery):
     await callback_query.message.edit_text(
         f"🚨 {bold('Управление системой алертов')}\n\n"
         f"Выберите действие:",
-        reply_markup=keyboard
+        reply_markup=keyboard,
+        parse_mode='MarkdownV2'
     )
     await callback_query.answer()
 
@@ -137,8 +155,9 @@ async def callback_alerts_menu_render(callback_query: types.CallbackQuery, title
         types.InlineKeyboardButton("◀️ Назад", callback_data="alerts_menu")
     )
     await callback_query.message.edit_text(
-        f"{escape_markdown_v2(title + body)}",
-        reply_markup=keyboard
+        f"{title}{escape_markdown_v2(body)}",
+        reply_markup=keyboard,
+        parse_mode='MarkdownV2'
     )
     await callback_query.answer()
 
