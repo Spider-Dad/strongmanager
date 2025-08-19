@@ -207,9 +207,12 @@ async def callback_sync_now(callback_query: types.CallbackQuery):
 
     # Формируем отчет о синхронизации
     if result['success']:
+        # Показываем только те таблицы, которые реально синхронизировались (из SYNC_SHEETS)
+        allowed_tables = set(getattr(sync_service, 'sheet_names_to_read', []) or [])
         records_text = "\n".join([
             f"• {table}: {count} записей"
             for table, count in result['records_synced'].items()
+            if not allowed_tables or table in allowed_tables
         ])
 
         message_text = (
@@ -274,9 +277,11 @@ async def callback_sync_status(callback_query: types.CallbackQuery):
             message_text += f"⏱️ Длительность: {status['duration_seconds']} сек\\.\n"
 
         if status.get('records_synced'):
+            allowed_tables = set(getattr(sync_service, 'sheet_names_to_read', []) or [])
             records_text = "\n".join([
                 f"  • {table}: {count}"
                 for table, count in status['records_synced'].items()
+                if not allowed_tables or table in allowed_tables
             ])
             message_text += f"\n{bold('Синхронизировано записей:')}\n{escape_markdown_v2(records_text)}\n"
 
