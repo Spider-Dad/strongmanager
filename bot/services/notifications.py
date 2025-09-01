@@ -91,6 +91,9 @@ async def process_notification(bot: Bot, config: Config, notification: Dict):
 
         logger.info(f"Уведомление {notification_id} успешно отправлено ментору {telegram_id}")
 
+        # Возвращаемся из функции после успешной отправки
+        return
+
     except GoogleScriptError as e:
         logger.error(f"Ошибка Google Script при отправке уведомления {notification_id}: {e}")
         if e.html_content:
