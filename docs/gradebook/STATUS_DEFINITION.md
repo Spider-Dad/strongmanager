@@ -12,6 +12,7 @@
 - no_after_deadline — ответа нет и now ≥ deadline (не сдал, дедлайн прошёл)
 - on_time — есть ответ и answer_date ≤ deadline (сдал вовремя)
 - late — есть ответ и answer_date > deadline (сдал с опозданием)
+- optional — необязательный урок без дедлайна (ответ не требуется)
 
 Категории для агрегатов
 - on_time_category: { on_time }
@@ -21,21 +22,24 @@
 Правила вычисления статуса (последовательность)
 1) Использовать дедлайн из `lessons.deadline_date`.
 2) Найти earliest_answer_date — минимальную дату ответа из `logs` для данного `student_id` и `lesson_id`.
-3) Если earliest_answer_date отсутствует:
+3) Если deadline отсутствует (урок без дедлайна):
+   - Если earliest_answer_date отсутствует → optional
+   - Иначе → on_time
+4) Если deadline присутствует и earliest_answer_date отсутствует:
    - Если now < deadline → no_before_deadline
    - Иначе → no_after_deadline
-4) Если earliest_answer_date присутствует:
+5) Если deadline присутствует и earliest_answer_date присутствует:
    - Если earliest_answer_date ≤ deadline → on_time
    - Иначе → late
 
 Состояния уроков и тренингов
 - Урок:
   - not_started: `opening_date > now`
-  - active: `opening_date <= now < deadline_date`
-  - completed: `deadline_date <= now`
-- Тренинг (по множеству уроков):
-  - not_started: все уроки not_started
-  - completed: все уроки completed
+  - active: `opening_date <= now` и (`deadline_date` отсутствует или `deadline_date > now`)
+  - completed: `deadline_date` присутствует и `deadline_date <= now`
+- Тренинг:
+  - not_started: `training.start_date > now` или все уроки not_started (fallback)
+  - completed: `training.end_date <= now` или все уроки с дедлайнами completed (fallback)
   - active: иначе
 
 Правила отображения по умолчанию

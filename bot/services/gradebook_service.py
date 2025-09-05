@@ -26,6 +26,7 @@ STATUS_ON_TIME = "on_time"  # сдал вовремя
 STATUS_LATE = "late"  # сдал с опозданием
 STATUS_NO_BEFORE_DEADLINE = "no_before_deadline"  # не сдал, дедлайн не прошёл
 STATUS_NO_AFTER_DEADLINE = "no_after_deadline"  # не сдал, дедлайн прошёл
+STATUS_OPTIONAL = "optional"  # необязательный урок без дедлайна
 
 NOT_ON_TIME_SET = {STATUS_LATE, STATUS_NO_BEFORE_DEADLINE, STATUS_NO_AFTER_DEADLINE}
 
@@ -45,12 +46,16 @@ def categorize_status(deadline: Optional[datetime], earliest_answer_date: Option
     Правила:
     - Нет ответа: now < deadline → no_before_deadline; иначе → no_after_deadline
     - Есть ответ: answer_date ≤ deadline → on_time; иначе → late
-    - Если дедлайн отсутствует: считаем, что срок не истёк → no_before_deadline (консервативно)
+    - Если дедлайн отсутствует: нет ответа → optional; есть ответ → on_time
     """
     current_time = now or datetime.now()
 
     if deadline is None:
-        return STATUS_NO_BEFORE_DEADLINE if earliest_answer_date is None else STATUS_ON_TIME
+        # Для уроков без дедлайна
+        if earliest_answer_date is None:
+            return STATUS_OPTIONAL  # новый статус для необязательных уроков
+        else:
+            return STATUS_ON_TIME  # ответ дан, считаем вовремя
 
     if earliest_answer_date is None:
         return STATUS_NO_BEFORE_DEADLINE if current_time < deadline else STATUS_NO_AFTER_DEADLINE
@@ -88,29 +93,52 @@ async def _fetch_lessons_for_trainings(session: AsyncSession, training_ids: Iter
 def get_lesson_state(lesson: Lesson, now: Optional[datetime] = None) -> str:
     """Возвращает состояние урока: not_started | active | completed."""
     current_time = now or datetime.now()
+
     if lesson.opening_date and lesson.opening_date > current_time:
         return "not_started"
-    if lesson.deadline_date and lesson.deadline_date <= current_time:
+
+    # Для уроков без дедлайна - всегда active после открытия
+    if not lesson.deadline_date:
+        if lesson.opening_date and lesson.opening_date <= current_time:
+            return "active"
+        return "not_started"
+
+    # Для уроков с дедлайном - стандартная логика
+    if lesson.deadline_date <= current_time:
         return "completed"
     return "active"
 
 
-def get_training_state(lessons: List[Lesson], now: Optional[datetime] = None) -> str:
-    """Состояние тренинга по его урокам."""
+def get_training_state(lessons: List[Lesson], training: Training = None, now: Optional[datetime] = None) -> str:
+    """Состояние тренинга по датам тренинга или урокам."""
     if not lessons:
         return "not_started"
+
     current_time = now or datetime.now()
-    all_not_started = True
-    all_completed = True
-    for l in lessons:
-        if not (l.opening_date and l.opening_date > current_time):
-            all_not_started = False
-        if not (l.deadline_date and l.deadline_date <= current_time):
-            all_completed = False
-    if all_not_started:
-        return "not_started"
-    if all_completed:
-        return "completed"
+
+    # Используем даты тренинга для определения состояния
+    if training and training.start_date and training.end_date:
+        if current_time < training.start_date:
+            return "not_started"
+        elif current_time >= training.end_date:
+            return "completed"
+        else:
+            return "active"
+
+    # Fallback: если нет дат тренинга, используем даты уроков
+    opening_dates = [l.opening_date for l in lessons if l.opening_date]
+    deadline_dates = [l.deadline_date for l in lessons if l.deadline_date]
+
+    if opening_dates:
+        earliest_opening = min(opening_dates)
+        if current_time < earliest_opening:
+            return "not_started"
+
+    if deadline_dates:
+        latest_deadline = max(deadline_dates)
+        if current_time >= latest_deadline:
+            return "completed"
+
     return "active"
 
 
@@ -238,7 +266,10 @@ async def build_mentor_overview(
     lesson_state = None
     if training_id is not None:
         training_lessons = [l for l in lessons if l.training_id == training_id]
-        training_state = get_training_state(training_lessons, now)
+        # Получаем объект training для корректного определения состояния
+        training_result = await session.execute(select(Training).where(Training.id == training_id))
+        training = training_result.scalar_one_or_none()
+        training_state = get_training_state(training_lessons, training, now)
     if lesson_id is not None and lessons:
         lesson_obj = next((l for l in lessons if l.id == lesson_id), None)
         if lesson_obj:

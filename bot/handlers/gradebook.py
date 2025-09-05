@@ -145,7 +145,7 @@ async def cb_progress_router(call: CallbackQuery, config):
             for t in trainings:
                 lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == t.id))
                 lessons = lessons_res.scalars().all()
-                state = get_training_state(lessons)
+                state = get_training_state(lessons, t)
                 state_emoji = {"active": "🟡", "completed": "🟢", "not_started": "🔴"}[state]
                 allowed = state != "not_started"
                 title_text = t.title or f"Training {t.id}"
@@ -394,7 +394,7 @@ async def _build_header_with_legend(session, training_id: Optional[int], lesson_
         # Получаем все уроки тренинга для определения статуса
         lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == training_id))
         training_lessons = lessons_res.scalars().all()
-        state = get_training_state(training_lessons)
+        state = get_training_state(training_lessons, t)
         emoji = get_status_emoji(state)
         title_text = t.title if t and t.title else str(training_id)
         training_info = f"{emoji}{title_text}"

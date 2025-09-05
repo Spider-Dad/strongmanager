@@ -58,8 +58,8 @@ class Training(Base):
     __tablename__ = "trainings"
     id = Column(Integer, primary_key=True)
     title = Column(String(255), nullable=False)
-    is_active = Column(Boolean, default=True)
-    progress_table_id = Column(String(255), nullable=True)
+    start_date = Column(DateTime, nullable=True)  # Дата начала тренинга
+    end_date = Column(DateTime, nullable=True)    # Дата окончания тренинга
 
 # Модель для хранения данных о занятиях
 class Lesson(Base):

@@ -260,8 +260,8 @@ class SyncService:
                     training = Training(
                         id=self.get_int(row.get('trainingId') or row.get('id')),
                         title=row.get('trainingTitle') or row.get('title'),
-                        is_active=True,
-                        progress_table_id=row.get('progressTableId')
+                        start_date=self.parse_date(row.get('startDate')),
+                        end_date=self.parse_date(row.get('endDate'))
                     )
                     session.add(training)
                 sync_result['records_synced']['trainings'] = len(sheets_data.get('trainings', []))
