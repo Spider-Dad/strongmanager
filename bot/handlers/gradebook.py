@@ -126,37 +126,46 @@ async def cb_progress_router(call: CallbackQuery, config):
 
         # Фильтр: выбор тренинга
         if data == "gb:filter:training":
-            if is_admin:
-                # Админ видит все тренинги
-                tr_res = await session.execute(select(Training))
-                trainings = tr_res.scalars().all()
-            else:
-                # Наставник видит только свои тренинги
-                q = await session.execute(select(Mapping.training_id).where(Mapping.mentor_id == mentor.id))
-                training_ids = sorted({row[0] for row in q.fetchall()})
-                if not training_ids:
-                    await call.answer("Нет тренингов", show_alert=True)
-                    return
-                tr_res = await session.execute(select(Training).where(Training.id.in_(training_ids)))
-                trainings = tr_res.scalars().all()
-            # добавляем статус тренинга и запрещаем not_started
-            options = []
-            from bot.services.gradebook_service import get_training_state
-            for t in trainings:
-                lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == t.id))
-                lessons = lessons_res.scalars().all()
-                state = get_training_state(lessons, t)
-                state_emoji = {"active": "🟡", "completed": "🟢", "not_started": "🔴"}[state]
-                allowed = state != "not_started"
-                title_text = t.title or f"Training {t.id}"
-                options.append((t.id, f"{state_emoji} {title_text}", allowed))
-            options = options[:10]
-            await call.message.edit_reply_markup(reply_markup=kb_training_select_with_status(options, has_more=len(trainings) > 10))
-            await call.answer()
+            # Немедленно отвечаем на callback query
+            await call.answer("Загрузка...")
+
+            try:
+                if is_admin:
+                    # Админ видит все тренинги
+                    tr_res = await session.execute(select(Training))
+                    trainings = tr_res.scalars().all()
+                else:
+                    # Наставник видит только свои тренинги
+                    q = await session.execute(select(Mapping.training_id).where(Mapping.mentor_id == mentor.id))
+                    training_ids = sorted({row[0] for row in q.fetchall()})
+                    if not training_ids:
+                        await call.answer("Нет тренингов", show_alert=True)
+                        return
+                    tr_res = await session.execute(select(Training).where(Training.id.in_(training_ids)))
+                    trainings = tr_res.scalars().all()
+                # добавляем статус тренинга и запрещаем not_started
+                options = []
+                from bot.services.gradebook_service import get_training_state
+                for t in trainings:
+                    lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == t.id))
+                    lessons = lessons_res.scalars().all()
+                    state = get_training_state(lessons, t)
+                    state_emoji = {"active": "🟡", "completed": "🟢", "not_started": "🔴"}[state]
+                    allowed = state != "not_started"
+                    title_text = t.title or f"Training {t.id}"
+                    options.append((t.id, f"{state_emoji} {title_text}", allowed))
+                options = options[:10]
+                await call.message.edit_reply_markup(reply_markup=kb_training_select_with_status(options, has_more=len(trainings) > 10))
+            except Exception as e:
+                logger.error(f"Ошибка при загрузке тренингов: {e}")
+                await call.message.edit_text("❌ Произошла ошибка при загрузке тренингов. Попробуйте еще раз.")
             return
 
         # Показ списка студентов (детализация): gb:list:students [опц. фильтры + пагинация]
         if data.startswith("gb:list:students") or data.startswith("gb:page:students"):
+            # Немедленно отвечаем на callback query
+            await call.answer("Загрузка...")
+
             # Парсим параметры: gb:list:students[:tr:{id}][:lesson:{id}][:p:{page}]
             parts = data.split(":")
             training_id = None
@@ -178,64 +187,67 @@ async def cb_progress_router(call: CallbackQuery, config):
                 except Exception:
                     page = 1
 
-            summary = await build_mentor_overview(session, mentor_id=mentor.id, training_id=training_id, lesson_id=lesson_id)
+            try:
+                summary = await build_mentor_overview(session, mentor_id=mentor.id, training_id=training_id, lesson_id=lesson_id)
 
-            # Счётчики по студентам: подсчёт статусов по items
-            per_student = {}
-            for it in summary.get("items", []):
-                sid = it.get("student_id") if isinstance(it, dict) else it.student_id
-                st = it.get("status") if isinstance(it, dict) else it.status
-                if sid not in per_student:
-                    per_student[sid] = {
-                        STATUS_ON_TIME: 0,
-                        STATUS_LATE: 0,
-                        STATUS_NO_BEFORE_DEADLINE: 0,
-                        STATUS_NO_AFTER_DEADLINE: 0,
-                    }
-                per_student[sid][st] += 1
+                # Счётчики по студентам: подсчёт статусов по items
+                per_student = {}
+                for it in summary.get("items", []):
+                    sid = it.get("student_id") if isinstance(it, dict) else it.student_id
+                    st = it.get("status") if isinstance(it, dict) else it.status
+                    if sid not in per_student:
+                        per_student[sid] = {
+                            STATUS_ON_TIME: 0,
+                            STATUS_LATE: 0,
+                            STATUS_NO_BEFORE_DEADLINE: 0,
+                            STATUS_NO_AFTER_DEADLINE: 0,
+                        }
+                    per_student[sid][st] += 1
 
-            # Сортировка по фамилии, затем имени
-            students = summary.get("students", {})
-            def sort_key(sid):
-                info = students.get(sid, {})
-                last = (info.get("last_name") or "").lower()
-                first = (info.get("first_name") or "").lower()
-                return (last, first, sid)
-            ordered_ids = sorted(per_student.keys(), key=sort_key)
+                # Сортировка по фамилии, затем имени
+                students = summary.get("students", {})
+                def sort_key(sid):
+                    info = students.get(sid, {})
+                    last = (info.get("last_name") or "").lower()
+                    first = (info.get("first_name") or "").lower()
+                    return (last, first, sid)
+                ordered_ids = sorted(per_student.keys(), key=sort_key)
 
-            # Пагинация: группируем карточки целиком (строка = одна карточка)
-            page_size = 20
-            total_pages = max(1, (len(ordered_ids) + page_size - 1) // page_size)
-            page = max(1, min(page, total_pages))
-            start = (page - 1) * page_size
-            end = start + page_size
-            page_ids = ordered_ids[start:end]
+                # Пагинация: группируем карточки целиком (строка = одна карточка)
+                page_size = 20
+                total_pages = max(1, (len(ordered_ids) + page_size - 1) // page_size)
+                page = max(1, min(page, total_pages))
+                start = (page - 1) * page_size
+                end = start + page_size
+                page_ids = ordered_ids[start:end]
 
-            # Используем полный хедер с легендой
-            lines = await _build_header_with_legend(session, training_id, lesson_id, is_admin=is_admin)
+                # Используем полный хедер с легендой
+                lines = await _build_header_with_legend(session, training_id, lesson_id, is_admin=is_admin)
 
-            for sid in page_ids:
-                info = students.get(sid, {})
-                last = info.get("last_name") or ""
-                first = info.get("first_name") or ""
-                counters = per_student[sid]
-                student_name = f"{last} {first}"
-                lines.append(f"{italic('Студент')}: {escape_markdown_v2(student_name)}")
-                lines.append(escape_markdown_v2(f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
-                lines.append("")  # Пустая строка для разделения студентов
+                for sid in page_ids:
+                    info = students.get(sid, {})
+                    last = info.get("last_name") or ""
+                    first = info.get("first_name") or ""
+                    counters = per_student[sid]
+                    student_name = f"{last} {first}"
+                    lines.append(f"{italic('Студент')}: {escape_markdown_v2(student_name)}")
+                    lines.append(escape_markdown_v2(f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
+                    lines.append("")  # Пустая строка для разделения студентов
 
-            text = "\n".join(lines)
+                text = "\n".join(lines)
 
-            # Построение базового префикса для пагинации
-            base = "gb:page:students"
-            if training_id is not None:
-                base += f":tr:{training_id}"
-            if lesson_id is not None:
-                base += f":lesson:{lesson_id}"
+                # Построение базового префикса для пагинации
+                base = "gb:page:students"
+                if training_id is not None:
+                    base += f":tr:{training_id}"
+                if lesson_id is not None:
+                    base += f":lesson:{lesson_id}"
 
-            await call.message.edit_text(text, parse_mode='MarkdownV2')
-            await call.message.edit_reply_markup(reply_markup=kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base))
-            await call.answer()
+                await call.message.edit_text(text, parse_mode='MarkdownV2')
+                await call.message.edit_reply_markup(reply_markup=kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base))
+            except Exception as e:
+                logger.error(f"Ошибка при рендеринге списка студентов: {e}")
+                await call.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
             return
 
         # Пагинация в админском режиме: gb:page:admin[:tr:{id}][:lesson:{id}][:p:{page}]
@@ -293,6 +305,9 @@ async def cb_progress_router(call: CallbackQuery, config):
 
         # Выбор урока: gb:filter:lesson:tr:{id}
         if data.startswith("gb:filter:lesson"):
+            # Немедленно отвечаем на callback query
+            await call.answer("Загрузка...")
+
             parts = data.split(":")
             # Проверяем формат: gb:filter:lesson или gb:filter:lesson:tr:ID
             if len(parts) < 3:
