@@ -172,7 +172,15 @@ async def main():
                         logger.debug("Update успешно обработан")
                         return web.Response()
                     except Exception as e:
-                        logger.error(f"Ошибка при обработке webhook: {e}")
+                        error_msg = str(e)
+                        logger.error(f"Ошибка при обработке webhook: {error_msg}")
+
+                        # Специальная обработка для ошибок таймаута callback query
+                        if "Query is too old" in error_msg or "response timeout expired" in error_msg:
+                            logger.warning("Обнаружена ошибка таймаута callback query - это нормально при долгих операциях")
+                            # Возвращаем 200, чтобы Telegram не повторял запрос
+                            return web.Response()
+
                         # Важно не пытаться получить update_dict снова, если await request.json() уже вызвал ошибку
                         # или если update_dict не был определен.
                         update_data_for_log = locals().get('update_dict', 'Нет данных')

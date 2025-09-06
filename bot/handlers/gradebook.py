@@ -240,6 +240,9 @@ async def cb_progress_router(call: CallbackQuery, config):
 
         # Пагинация в админском режиме: gb:page:admin[:tr:{id}][:lesson:{id}][:p:{page}]
         if data.startswith("gb:page:admin"):
+            # Немедленно отвечаем на callback query, чтобы избежать таймаута
+            await call.answer("Загрузка...")
+
             parts = data.split(":")
             training_id = None
             lesson_id = None
@@ -260,22 +263,32 @@ async def cb_progress_router(call: CallbackQuery, config):
                 except Exception:
                     page = 1
 
-            await _render_admin_list(call.message, session, training_id=training_id, lesson_id=lesson_id, page=page, edit=True)
-            await call.answer()
+            try:
+                await _render_admin_list(call.message, session, training_id=training_id, lesson_id=lesson_id, page=page, edit=True)
+            except Exception as e:
+                logger.error(f"Ошибка при рендеринге админского списка: {e}")
+                await call.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
             return
 
         # Установка тренинга: gb:set:tr:{id}
         if data.startswith("gb:set:tr:"):
+            # Немедленно отвечаем на callback query
+            await call.answer("Загрузка...")
+
             try:
                 training_id = int(data.split(":")[3])
             except Exception:
                 await call.answer("Некорректный тренинг", show_alert=True)
                 return
-            if is_admin:
-                await _render_admin_list(call.message, session, training_id=training_id, lesson_id=None, page=1, edit=True)
-            else:
-                await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=None, page=1, edit=True)
-            await call.answer()
+
+            try:
+                if is_admin:
+                    await _render_admin_list(call.message, session, training_id=training_id, lesson_id=None, page=1, edit=True)
+                else:
+                    await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=None, page=1, edit=True)
+            except Exception as e:
+                logger.error(f"Ошибка при рендеринге списка: {e}")
+                await call.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
             return
 
         # Выбор урока: gb:filter:lesson:tr:{id}
@@ -333,6 +346,9 @@ async def cb_progress_router(call: CallbackQuery, config):
 
                 # Установка урока: gb:set:lesson:{lesson_id}:tr:{training_id}
         if data.startswith("gb:set:lesson:"):
+            # Немедленно отвечаем на callback query
+            await call.answer("Загрузка...")
+
             parts = data.split(":")
             # Проверяем формат: gb:set:lesson:LESSON_ID:tr:TRAINING_ID
             # parts = ["gb", "set", "lesson", "{lesson_id}", "tr", "{training_id}"]
@@ -346,11 +362,15 @@ async def cb_progress_router(call: CallbackQuery, config):
             except Exception:
                 await call.answer("Некорректные данные", show_alert=True)
                 return
-            if is_admin:
-                await _render_admin_list(call.message, session, training_id=training_id, lesson_id=lesson_id, page=1, edit=True)
-            else:
-                await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=lesson_id, page=1, edit=True)
-            await call.answer()
+
+            try:
+                if is_admin:
+                    await _render_admin_list(call.message, session, training_id=training_id, lesson_id=lesson_id, page=1, edit=True)
+                else:
+                    await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=lesson_id, page=1, edit=True)
+            except Exception as e:
+                logger.error(f"Ошибка при рендеринге списка: {e}")
+                await call.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
             return
 
         # Блокировка выбора not_started
@@ -359,12 +379,18 @@ async def cb_progress_router(call: CallbackQuery, config):
             return
 
         if data == "gb:back":
-            # Сброс к базовому экрану
-            if is_admin:
-                await _render_admin_list(call.message, session, training_id=None, lesson_id=None, page=1, edit=True)
-            else:
-                await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=None, lesson_id=None, page=1, edit=True)
-            await call.answer()
+            # Немедленно отвечаем на callback query
+            await call.answer("Загрузка...")
+
+            try:
+                # Сброс к базовому экрану
+                if is_admin:
+                    await _render_admin_list(call.message, session, training_id=None, lesson_id=None, page=1, edit=True)
+                else:
+                    await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=None, lesson_id=None, page=1, edit=True)
+            except Exception as e:
+                logger.error(f"Ошибка при рендеринге списка: {e}")
+                await call.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
             return
 
         if data == "gb:nop":
@@ -500,6 +526,13 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
     from bot.services.database import Mentor
     mentors_res = await session.execute(select(Mentor))
     mentors = mentors_res.scalars().all()
+
+    # Показываем индикатор загрузки для пользователя
+    if edit:
+        try:
+            await message.edit_text("⏳ Загрузка данных...", parse_mode='MarkdownV2')
+        except Exception:
+            pass  # Игнорируем ошибки при обновлении сообщения
 
     blocks = []  # [(mentor_display, [(student_display, counters_dict), ...])]
     from bot.services.gradebook_service import build_mentor_overview

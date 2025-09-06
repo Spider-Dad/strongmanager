@@ -386,24 +386,31 @@ def register_common_handlers(dp: Dispatcher, config):
             await callback.answer()
             return
         if data == "mm:progress":
-            if is_admin:
-                # Для админа открываем список админа
-                from bot.handlers.gradebook import _render_admin_list
-                async for session in get_session():
-                    await _render_admin_list(callback.message, session, training_id=None, lesson_id=None, page=1, edit=True)
-                await callback.answer()
-            else:
-                from sqlalchemy import select
-                from bot.services.database import Mentor
-                async for session in get_session():
-                    res = await session.execute(select(Mentor).where(Mentor.telegram_id == user_id))
-                    mentor = res.scalars().first()
-                    if mentor:
-                        from bot.handlers.gradebook import _render_students_list
-                        await _render_students_list(callback.message, session, mentor_id=mentor.id, training_id=None, lesson_id=None, page=1, edit=True)
-                    else:
-                        await callback.answer("Нет доступа", show_alert=True)
-                await callback.answer()
+            # Немедленно отвечаем на callback query
+            await callback.answer("Загрузка...")
+
+            try:
+                if is_admin:
+                    # Для админа открываем список админа
+                    from bot.handlers.gradebook import _render_admin_list
+                    async for session in get_session():
+                        await _render_admin_list(callback.message, session, training_id=None, lesson_id=None, page=1, edit=True)
+                else:
+                    from sqlalchemy import select
+                    from bot.services.database import Mentor
+                    async for session in get_session():
+                        res = await session.execute(select(Mentor).where(Mentor.telegram_id == user_id))
+                        mentor = res.scalars().first()
+                        if mentor:
+                            from bot.handlers.gradebook import _render_students_list
+                            await _render_students_list(callback.message, session, mentor_id=mentor.id, training_id=None, lesson_id=None, page=1, edit=True)
+                        else:
+                            await callback.answer("Нет доступа", show_alert=True)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Ошибка при рендеринге прогресса: {e}")
+                await callback.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
             return
         if data == "mm:sync":
             if user_id in config.admin_ids:
