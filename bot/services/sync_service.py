@@ -271,7 +271,7 @@ class SyncService:
                     lesson = Lesson(
                         id=self.get_int(row.get('lessonId') or row.get('id')),
                         training_id=self.get_int(row.get('trainingId')),
-                        module_number=self.get_int(row.get('moduleNumber')),
+                        module_number=row.get('moduleNumber'),
                         lesson_number=self.get_int(row.get('lessonNumber')),
                         title=row.get('lessonTitle') or row.get('title'),
                         opening_date=self.parse_date(row.get('openingDate')),

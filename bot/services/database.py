@@ -66,7 +66,7 @@ class Lesson(Base):
     __tablename__ = "lessons"
     id = Column(Integer, primary_key=True)
     training_id = Column(Integer, nullable=False)
-    module_number = Column(Integer, nullable=True)
+    module_number = Column(String(255), nullable=True)
     lesson_number = Column(Integer, nullable=True)
     title = Column(String(255), nullable=True)
     opening_date = Column(DateTime, nullable=True)
