@@ -466,7 +466,7 @@ async def _build_header_with_legend(session, training_id: Optional[int], lesson_
         "",
         escape_markdown_v2("🟢 Урок завершен. ✅ Ответ вовремя."),
         escape_markdown_v2("🟢 Урок завершен. ⏰ Ответ с опозданием."),
-        escape_markdown_v2("🟡 Урок активный. ⌛ Ответ вовремя."),
+        escape_markdown_v2("🟡 Урок активный. ⌛ Ответа нет."),
         escape_markdown_v2("🟢 Урок завершен. ❌ Ответа нет."),
         "",
     ]
@@ -586,7 +586,7 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
             blocks.append((mentor_name, student_rows, len(student_rows)))
 
     if not blocks:
-        text = "📈 " + bold("Статистика по наставникам") + "\n\n" + escape_markdown_v2("Нет студентов, назначенных наставникам")
+        text = "📈 " + bold("Статистика по наставникам") + "\n\n" + escape_markdown_v2("Статистика собирается только по активным и завершенным тренингам/урокам")
         await message.edit_text(text, parse_mode='MarkdownV2')
         return
 
