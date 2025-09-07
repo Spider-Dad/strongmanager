@@ -405,7 +405,13 @@ async def cb_progress_router(call: CallbackQuery, config):
                     await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=None, lesson_id=None, page=1, edit=True)
             except Exception as e:
                 logger.error(f"Ошибка при рендеринге списка: {e}")
-                await call.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
+                # Fallback: отправляем простое сообщение без MarkdownV2
+                try:
+                    await call.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
+                except Exception as fallback_error:
+                    logger.error(f"Ошибка при отправке fallback сообщения: {fallback_error}")
+                    # Последняя попытка - отвечаем на callback query
+                    await call.answer("Произошла ошибка. Попробуйте позже.", show_alert=True)
             return
 
         if data == "gb:nop":
@@ -500,7 +506,12 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
     # Проверка наличия студентов
     if not ordered_ids:
         text = "📊 " + bold("Статистика ваших студентов") + "\n\n" + escape_markdown_v2("Нет назначенных студентов")
-        await message.edit_text(text, parse_mode='MarkdownV2', reply_markup=kb_progress_filters())
+        try:
+            await message.edit_text(text, parse_mode='MarkdownV2', reply_markup=kb_progress_filters())
+        except Exception as e:
+            logger.error(f"Ошибка при отправке сообщения 'Нет студентов': {e}")
+            # Fallback: отправляем без MarkdownV2
+            await message.edit_text("📊 Статистика ваших студентов\n\nНет назначенных студентов", reply_markup=kb_progress_filters())
         return
 
     # paging
@@ -529,11 +540,31 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
     if lesson_id is not None:
         base += f":lesson:{lesson_id}"
     kb = kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base)
+
     if edit:
-        await message.edit_text(text, parse_mode='MarkdownV2')
-        await message.edit_reply_markup(reply_markup=kb)
+        try:
+            await message.edit_text(text, parse_mode='MarkdownV2')
+            await message.edit_reply_markup(reply_markup=kb)
+        except Exception as e:
+            logger.error(f"Ошибка при редактировании сообщения с MarkdownV2: {e}")
+            # Fallback: отправляем без MarkdownV2
+            try:
+                # Убираем MarkdownV2 форматирование для fallback
+                fallback_text = text.replace('*', '').replace('_', '').replace('\\', '')
+                await message.edit_text(fallback_text)
+                await message.edit_reply_markup(reply_markup=kb)
+            except Exception as fallback_error:
+                logger.error(f"Ошибка при fallback редактировании: {fallback_error}")
+                # Последняя попытка - просто обновляем клавиатуру
+                await message.edit_reply_markup(reply_markup=kb)
     else:
-        await message.answer(text, reply_markup=kb)
+        try:
+            await message.answer(text, reply_markup=kb)
+        except Exception as e:
+            logger.error(f"Ошибка при отправке сообщения с MarkdownV2: {e}")
+            # Fallback: отправляем без MarkdownV2
+            fallback_text = text.replace('*', '').replace('_', '').replace('\\', '')
+            await message.answer(fallback_text, reply_markup=kb)
 
 
 async def _render_admin_list(message: types.Message, session, training_id: Optional[int], lesson_id: Optional[int], page: int, *, edit: bool = False):
@@ -587,7 +618,12 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
 
     if not blocks:
         text = "📈 " + bold("Статистика по наставникам") + "\n\n" + escape_markdown_v2("Статистика собирается только по активным и завершенным тренингам/урокам")
-        await message.edit_text(text, parse_mode='MarkdownV2')
+        try:
+            await message.edit_text(text, parse_mode='MarkdownV2')
+        except Exception as e:
+            logger.error(f"Ошибка при отправке сообщения 'Нет блоков': {e}")
+            # Fallback: отправляем без MarkdownV2
+            await message.edit_text("📈 Статистика по наставникам\n\nСтатистика собирается только по активным и завершенным тренингам/урокам")
         return
 
     # Пагинация блоками (не разрываем наставника)
@@ -633,8 +669,27 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
     if lesson_id is not None:
         base += f":lesson:{lesson_id}"
     kb = kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base)
+
     if edit:
-        await message.edit_text(text)
-        await message.edit_reply_markup(reply_markup=kb)
+        try:
+            await message.edit_text(text)
+            await message.edit_reply_markup(reply_markup=kb)
+        except Exception as e:
+            logger.error(f"Ошибка при редактировании админского сообщения: {e}")
+            # Fallback: отправляем без MarkdownV2
+            try:
+                fallback_text = text.replace('*', '').replace('_', '').replace('\\', '')
+                await message.edit_text(fallback_text)
+                await message.edit_reply_markup(reply_markup=kb)
+            except Exception as fallback_error:
+                logger.error(f"Ошибка при fallback редактировании админского сообщения: {fallback_error}")
+                # Последняя попытка - просто обновляем клавиатуру
+                await message.edit_reply_markup(reply_markup=kb)
     else:
-        await message.answer(text, reply_markup=kb)
+        try:
+            await message.answer(text, reply_markup=kb)
+        except Exception as e:
+            logger.error(f"Ошибка при отправке админского сообщения: {e}")
+            # Fallback: отправляем без MarkdownV2
+            fallback_text = text.replace('*', '').replace('_', '').replace('\\', '')
+            await message.answer(fallback_text, reply_markup=kb)

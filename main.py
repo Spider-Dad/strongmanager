@@ -33,6 +33,10 @@ db_log_handler = None
 sync_service: Optional[SyncService] = None
 logger = None
 
+# Кэш для предотвращения повторной обработки дублирующихся обновлений
+processed_updates = set()
+MAX_PROCESSED_UPDATES = 1000  # Максимальное количество хранимых update_id
+
 # Создание директорий для данных перенесено на конфигурацию (чтобы dev не зависел от CWD)
 
 async def on_startup(dp):
@@ -160,6 +164,22 @@ async def main():
                         update = aiogram.types.Update(**update_dict)
                         logger.debug(f"Создан объект Update: {update}")
 
+                        # Проверяем, не обрабатывали ли мы уже это обновление
+                        update_id = update.update_id
+                        if update_id in processed_updates:
+                            logger.warning(f"Пропускаем дублирующееся обновление: {update_id}")
+                            return web.Response()  # Возвращаем 200, чтобы Telegram не повторял запрос
+
+                        # Добавляем update_id в кэш
+                        processed_updates.add(update_id)
+
+                        # Ограничиваем размер кэша
+                        if len(processed_updates) > MAX_PROCESSED_UPDATES:
+                            # Удаляем самые старые записи (простая стратегия)
+                            oldest_updates = list(processed_updates)[:100]
+                            for old_id in oldest_updates:
+                                processed_updates.discard(old_id)
+
                         # Получаем экземпляры Bot и Dispatcher из состояния приложения
                         current_bot = request.app['bot']
                         current_dp = request.app['dp']
@@ -178,6 +198,18 @@ async def main():
                         # Специальная обработка для ошибок таймаута callback query
                         if "Query is too old" in error_msg or "response timeout expired" in error_msg:
                             logger.warning("Обнаружена ошибка таймаута callback query - это нормально при долгих операциях")
+                            # Возвращаем 200, чтобы Telegram не повторял запрос
+                            return web.Response()
+
+                        # Специальная обработка для ошибок парсинга MarkdownV2
+                        if "Can't parse entities" in error_msg or "character '.' is reserved" in error_msg:
+                            logger.warning(f"Обнаружена ошибка парсинга MarkdownV2: {error_msg}")
+                            # Возвращаем 200, чтобы Telegram не повторял запрос
+                            return web.Response()
+
+                        # Специальная обработка для ошибок редактирования сообщений
+                        if "Message can't be edited" in error_msg or "Message is not modified" in error_msg:
+                            logger.warning(f"Обнаружена ошибка редактирования сообщения: {error_msg}")
                             # Возвращаем 200, чтобы Telegram не повторял запрос
                             return web.Response()
 
