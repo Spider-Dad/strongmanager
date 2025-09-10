@@ -493,6 +493,7 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
             STATUS_LATE: 0,
             STATUS_NO_BEFORE_DEADLINE: 0,
             STATUS_NO_AFTER_DEADLINE: 0,
+            'optional': 0,
         })[st] += 1
 
     # order students
@@ -595,6 +596,7 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
                 STATUS_LATE: 0,
                 STATUS_NO_BEFORE_DEADLINE: 0,
                 STATUS_NO_AFTER_DEADLINE: 0,
+                'optional': 0,
             })[st] += 1
         def s_key(sid):
             info = students.get(sid, {})
