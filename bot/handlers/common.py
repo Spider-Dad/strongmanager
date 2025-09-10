@@ -413,7 +413,7 @@ def register_common_handlers(dp: Dispatcher, config):
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.error(f"Ошибка при рендеринге прогресса: {e}")
-                await callback.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
+                await callback.message.edit_text("❌ Произошла ошибка при загрузке данных — попробуйте еще раз")
             return
         if data == "mm:sync":
             if user_id in config.admin_ids:

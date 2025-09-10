@@ -158,7 +158,7 @@ async def cb_progress_router(call: CallbackQuery, config):
                 await call.message.edit_reply_markup(reply_markup=kb_training_select_with_status(options, has_more=len(trainings) > 10))
             except Exception as e:
                 logger.error(f"Ошибка при загрузке тренингов: {e}")
-                await call.message.edit_text("❌ Произошла ошибка при загрузке тренингов. Попробуйте еще раз.")
+                await call.message.edit_text("❌ Произошла ошибка при загрузке тренингов — попробуйте еще раз")
             return
 
         # Показ списка студентов (детализация): gb:list:students [опц. фильтры + пагинация]
@@ -201,6 +201,7 @@ async def cb_progress_router(call: CallbackQuery, config):
                             STATUS_LATE: 0,
                             STATUS_NO_BEFORE_DEADLINE: 0,
                             STATUS_NO_AFTER_DEADLINE: 0,
+                            'optional': 0,
                         }
                     per_student[sid][st] += 1
 
@@ -247,7 +248,7 @@ async def cb_progress_router(call: CallbackQuery, config):
                 await call.message.edit_reply_markup(reply_markup=kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base))
             except Exception as e:
                 logger.error(f"Ошибка при рендеринге списка студентов: {e}")
-                await call.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
+                await call.message.edit_text("❌ Произошла ошибка при загрузке данных — попробуйте еще раз")
             return
 
         # Пагинация в админском режиме: gb:page:admin[:tr:{id}][:lesson:{id}][:p:{page}]
@@ -279,7 +280,7 @@ async def cb_progress_router(call: CallbackQuery, config):
                 await _render_admin_list(call.message, session, training_id=training_id, lesson_id=lesson_id, page=page, edit=True)
             except Exception as e:
                 logger.error(f"Ошибка при рендеринге админского списка: {e}")
-                await call.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
+                await call.message.edit_text("❌ Произошла ошибка при загрузке данных — попробуйте еще раз")
             return
 
         # Установка тренинга: gb:set:tr:{id}
@@ -300,7 +301,7 @@ async def cb_progress_router(call: CallbackQuery, config):
                     await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=None, page=1, edit=True)
             except Exception as e:
                 logger.error(f"Ошибка при рендеринге списка: {e}")
-                await call.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
+                await call.message.edit_text("❌ Произошла ошибка при загрузке данных — попробуйте еще раз")
             return
 
         # Выбор урока: gb:filter:lesson:tr:{id}
@@ -407,7 +408,7 @@ async def cb_progress_router(call: CallbackQuery, config):
                 logger.error(f"Ошибка при рендеринге списка: {e}")
                 # Fallback: отправляем простое сообщение без MarkdownV2
                 try:
-                    await call.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
+                    await call.message.edit_text("❌ Произошла ошибка при загрузке данных — попробуйте еще раз")
                 except Exception as fallback_error:
                     logger.error(f"Ошибка при отправке fallback сообщения: {fallback_error}")
                     # Последняя попытка - отвечаем на callback query
@@ -576,7 +577,7 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
     # Показываем индикатор загрузки для пользователя
     if edit:
         try:
-            await message.edit_text("⏳ Загрузка данных...", parse_mode='MarkdownV2')
+            await message.edit_text("⏳ Загрузка данных…", parse_mode='MarkdownV2')
         except Exception:
             pass  # Игнорируем ошибки при обновлении сообщения
 
