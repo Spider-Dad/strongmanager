@@ -49,7 +49,7 @@ async def check_new_notifications(bot: Bot, config: Config):
         logger.error(f"Неожиданная ошибка при проверке новых уведомлений: {e}")
         logger.exception("Полный traceback:")
 
-async def _send_notification_with_retry(bot: Bot, telegram_id: int, formatted_message: str) -> int:
+async def _send_notification_with_retry(bot: Bot, telegram_id: int, formatted_message: str, config: Config) -> int:
     """
     Отправляет уведомление с повторными попытками.
 
@@ -57,6 +57,7 @@ async def _send_notification_with_retry(bot: Bot, telegram_id: int, formatted_me
         bot: Экземпляр бота Telegram
         telegram_id: ID чата для отправки
         formatted_message: Отформатированное сообщение
+        config: Конфигурация бота
 
     Returns:
         ID отправленного сообщения
@@ -64,12 +65,23 @@ async def _send_notification_with_retry(bot: Bot, telegram_id: int, formatted_me
     Raises:
         Exception: Если все попытки отправки не удались
     """
-    message = await bot.send_message(
-        chat_id=telegram_id,
-        text=formatted_message,
-        parse_mode="MarkdownV2"
+    async def _send_message():
+        message = await bot.send_message(
+            chat_id=telegram_id,
+            text=formatted_message,
+            parse_mode="MarkdownV2"
+        )
+        return message.message_id
+
+    return await retry_with_backoff(
+        func=_send_message,
+        max_retries=config.notification_max_retries,
+        base_delay=config.notification_retry_base_delay,
+        max_delay=config.notification_retry_max_delay,
+        exponential_base=2.0,
+        jitter=True,
+        retry_exceptions=[Exception]  # Повторяем при любых ошибках сети/API
     )
-    return message.message_id
 
 
 async def process_notification(bot: Bot, config: Config, notification: Dict):
@@ -94,15 +106,7 @@ async def process_notification(bot: Bot, config: Config, notification: Dict):
         formatted_message = format_notification_message(notification)
 
         # Отправка уведомления в Telegram с повторными попытками
-        message_id = await retry_with_backoff(
-            func=lambda: _send_notification_with_retry(bot, telegram_id, formatted_message),
-            max_retries=config.notification_max_retries,
-            base_delay=config.notification_retry_base_delay,
-            max_delay=config.notification_retry_max_delay,
-            exponential_base=2.0,
-            jitter=True,
-            retry_exceptions=[Exception]  # Повторяем при любых ошибках сети/API
-        )
+        message_id = await _send_notification_with_retry(bot, telegram_id, formatted_message, config)
 
         # Обновление статуса уведомления
         await update_notification_status(
