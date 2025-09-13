@@ -61,6 +61,11 @@ class Config:
         self.retry_base_delay = float(os.getenv("RETRY_BASE_DELAY", 1.0))
         self.retry_max_delay = float(os.getenv("RETRY_MAX_DELAY", 60.0))
 
+        # Настройки retry для уведомлений
+        self.notification_max_retries = int(os.getenv("NOTIFICATION_MAX_RETRIES", 3))
+        self.notification_retry_base_delay = float(os.getenv("NOTIFICATION_RETRY_BASE_DELAY", 2.0))
+        self.notification_retry_max_delay = float(os.getenv("NOTIFICATION_RETRY_MAX_DELAY", 60.0))
+
         # Фича-флаги
         # Включение функционала табеля (по умолчанию выключен для безопасного релиза)
         self.gradebook_enabled = os.getenv("GRADEBOOK_ENABLED", "false").lower() == "true"

@@ -11,6 +11,7 @@ from bot.services.api import get_new_notifications, update_notification_status, 
 from bot.services.database import get_session, Mentor, Notification
 from bot.config import Config
 from bot.utils.markdown import escape_markdown_v2, format_notification, format_student_action, convert_pseudo_markdown_to_v2
+from bot.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +49,35 @@ async def check_new_notifications(bot: Bot, config: Config):
         logger.error(f"Неожиданная ошибка при проверке новых уведомлений: {e}")
         logger.exception("Полный traceback:")
 
+async def _send_notification_with_retry(bot: Bot, telegram_id: int, formatted_message: str) -> int:
+    """
+    Отправляет уведомление с повторными попытками.
+
+    Args:
+        bot: Экземпляр бота Telegram
+        telegram_id: ID чата для отправки
+        formatted_message: Отформатированное сообщение
+
+    Returns:
+        ID отправленного сообщения
+
+    Raises:
+        Exception: Если все попытки отправки не удались
+    """
+    async def _send_message():
+        message = await bot.send_message(
+            chat_id=telegram_id,
+            text=formatted_message,
+            parse_mode="MarkdownV2"
+        )
+        return message.message_id
+
+    return await _send_message()
+
+
 async def process_notification(bot: Bot, config: Config, notification: Dict):
     """
-    Обрабатывает одно уведомление.
+    Обрабатывает одно уведомление с повторными попытками отправки.
 
     Args:
         bot: Экземпляр бота Telegram
@@ -69,11 +96,15 @@ async def process_notification(bot: Bot, config: Config, notification: Dict):
         # Форматирование сообщения
         formatted_message = format_notification_message(notification)
 
-        # Отправка уведомления в Telegram
-        message = await bot.send_message(
-            chat_id=telegram_id,
-            text=formatted_message,
-            parse_mode="MarkdownV2"
+        # Отправка уведомления в Telegram с повторными попытками
+        message_id = await retry_with_backoff(
+            func=lambda: _send_notification_with_retry(bot, telegram_id, formatted_message),
+            max_retries=config.notification_max_retries,
+            base_delay=config.notification_retry_base_delay,
+            max_delay=config.notification_retry_max_delay,
+            exponential_base=2.0,
+            jitter=True,
+            retry_exceptions=[Exception]  # Повторяем при любых ошибках сети/API
         )
 
         # Обновление статуса уведомления
@@ -81,13 +112,13 @@ async def process_notification(bot: Bot, config: Config, notification: Dict):
             config.api_url,
             notification_id,
             "sent",
-            message.message_id,
+            message_id,
             config
         )
 
         # Сохранение в локальной БД
         async for session in get_session():
-            await save_notification_to_db(session, notification, "sent", message.message_id)
+            await save_notification_to_db(session, notification, "sent", message_id)
 
         logger.info(f"Уведомление {notification_id} успешно отправлено ментору {telegram_id}")
 
@@ -104,7 +135,7 @@ async def process_notification(bot: Bot, config: Config, notification: Dict):
         logger.error(f"Неожиданная ошибка при отправке уведомления {notification_id}: {e}")
         logger.exception("Полный traceback:")
 
-    # Обновление статуса на "failed" в случае любой ошибки
+    # Обновление статуса на "failed" в случае любой ошибки после всех попыток
     try:
         await update_notification_status(config.api_url, notification_id, "failed", config=config)
 
