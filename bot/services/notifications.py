@@ -64,15 +64,12 @@ async def _send_notification_with_retry(bot: Bot, telegram_id: int, formatted_me
     Raises:
         Exception: Если все попытки отправки не удались
     """
-    async def _send_message():
-        message = await bot.send_message(
-            chat_id=telegram_id,
-            text=formatted_message,
-            parse_mode="MarkdownV2"
-        )
-        return message.message_id
-
-    return await _send_message()
+    message = await bot.send_message(
+        chat_id=telegram_id,
+        text=formatted_message,
+        parse_mode="MarkdownV2"
+    )
+    return message.message_id
 
 
 async def process_notification(bot: Bot, config: Config, notification: Dict):
