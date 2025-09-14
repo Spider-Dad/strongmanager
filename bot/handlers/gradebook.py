@@ -27,6 +27,7 @@ from bot.keyboards.gradebook import (
     kb_filters_with_pagination,
     kb_training_select_with_status,
     kb_lesson_select_with_status,
+    _kb_lesson_select_with_pagination,
 )
 
 
@@ -304,59 +305,61 @@ async def cb_progress_router(call: CallbackQuery, config):
                 await call.message.edit_text("❌ Произошла ошибка при загрузке данных — попробуйте еще раз")
             return
 
-        # Выбор урока: gb:filter:lesson:tr:{id}
+        # Выбор урока: gb:filter:lesson:tr:{id}[:p:{page}]
         if data.startswith("gb:filter:lesson"):
             # Немедленно отвечаем на callback query
             await call.answer("Загрузка...")
 
             parts = data.split(":")
-            # Проверяем формат: gb:filter:lesson или gb:filter:lesson:tr:ID
+            # Проверяем формат: gb:filter:lesson или gb:filter:lesson:tr:ID[:p:page]
             if len(parts) < 3:
                 await call.answer("Сначала выберите тренинг", show_alert=True)
                 return
 
             training_id = None
+            page = 1
             if len(parts) >= 5 and parts[3] == "tr":
                 try:
                     training_id = int(parts[4])
+                    # Проверяем наличие параметра страницы
+                    if len(parts) >= 7 and parts[5] == "p":
+                        page = int(parts[6])
                 except Exception:
-                    await call.answer("Некорректный тренинг", show_alert=True)
+                    await call.answer("Некорректные данные", show_alert=True)
                     return
             else:
                 await call.answer("Сначала выберите тренинг", show_alert=True)
                 return
 
             try:
-                lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == training_id))
-                lessons = lessons_res.scalars().all()
-                if not lessons:
-                    await call.answer("Нет уроков в данном тренинге", show_alert=True)
-                    return
-
-                from bot.services.gradebook_service import get_lesson_state
-                # Сортируем уроки: активный наверх, затем по номеру урока
-                lesson_data = []
-                for l in lessons:
-                    state = get_lesson_state(l)
-                    state_emoji = get_status_emoji(state)
-                    allowed = state != "not_started"
-                    # Добавляем номер урока, если есть
-                    lesson_num = f"№ {l.lesson_number}. " if l.lesson_number is not None else ""
-                    lesson_title = l.title or f"Lesson {l.id}"
-                    title = f"{state_emoji} {lesson_num}{lesson_title}"
-                    # Для сортировки: активный урок (priority=0), остальные по номеру урока
-                    priority = 0 if state == "active" else 1
-                    sort_key = (priority, l.lesson_number or 0)
-                    lesson_data.append((l.id, title, allowed, sort_key))
-
-                # Сортируем и формируем opts
-                lesson_data.sort(key=lambda x: x[3])
-                opts = [(lesson_id, title, allowed) for lesson_id, title, allowed, _ in lesson_data]
-                opts = opts[:10]
-                await call.message.edit_reply_markup(reply_markup=kb_lesson_select_with_status(opts, training_id, has_more=len(lessons) > 10))
-                await call.answer()
+                await _render_lessons_list(call.message, session, training_id, page, edit=True)
             except Exception as e:
                 logger.error(f"Ошибка при выборе урока: {e}")
+                await call.answer("Произошла ошибка при загрузке уроков", show_alert=True)
+            return
+
+        # Пагинация уроков: gb:page:lessons:tr:{id}:p:{page}
+        if data.startswith("gb:page:lessons"):
+            # Немедленно отвечаем на callback query
+            await call.answer("Загрузка...")
+
+            parts = data.split(":")
+            # Проверяем формат: gb:page:lessons:tr:ID:p:page
+            if len(parts) < 7 or parts[2] != "lessons" or parts[3] != "tr" or parts[5] != "p":
+                await call.answer("Некорректные данные", show_alert=True)
+                return
+
+            try:
+                training_id = int(parts[4])
+                page = int(parts[6])
+            except Exception:
+                await call.answer("Некорректные данные", show_alert=True)
+                return
+
+            try:
+                await _render_lessons_list(call.message, session, training_id, page, edit=True)
+            except Exception as e:
+                logger.error(f"Ошибка при пагинации уроков: {e}")
                 await call.answer("Произошла ошибка при загрузке уроков", show_alert=True)
             return
 
@@ -477,6 +480,64 @@ async def _build_header_with_legend(session, training_id: Optional[int], lesson_
         escape_markdown_v2("🟢 Урок завершен. ❌ Ответа нет."),
         "",
     ]
+
+
+async def _render_lessons_list(message: types.Message, session, training_id: int, page: int, *, edit: bool = False):
+    """Рендерит список уроков с пагинацией."""
+    from sqlalchemy import select
+    from bot.services.database import Lesson
+    from bot.services.gradebook_service import get_lesson_state, get_status_emoji
+
+    try:
+        lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == training_id))
+        lessons = lessons_res.scalars().all()
+        if not lessons:
+            await message.edit_text("Нет уроков в данном тренинге")
+            return
+
+        # Сортируем уроки: активный наверх, затем по номеру урока
+        lesson_data = []
+        for l in lessons:
+            state = get_lesson_state(l)
+            state_emoji = get_status_emoji(state)
+            allowed = state != "not_started"
+            # Добавляем номер урока, если есть
+            lesson_num = f"№ {l.lesson_number}. " if l.lesson_number is not None else ""
+            lesson_title = l.title or f"Lesson {l.id}"
+            title = f"{state_emoji} {lesson_num}{lesson_title}"
+            # Для сортировки: активный урок (priority=0), остальные по номеру урока
+            priority = 0 if state == "active" else 1
+            sort_key = (priority, l.lesson_number or 0)
+            lesson_data.append((l.id, title, allowed, sort_key))
+
+        # Сортируем
+        lesson_data.sort(key=lambda x: x[3])
+
+        # Пагинация
+        page_size = 10
+        total_pages = max(1, (len(lesson_data) + page_size - 1) // page_size)
+        page = max(1, min(page, total_pages))
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_lessons = lesson_data[start:end]
+
+        # Формируем опции для клавиатуры
+        opts = [(lesson_id, title, allowed) for lesson_id, title, allowed, _ in page_lessons]
+
+        # Создаем клавиатуру с пагинацией
+        kb = _kb_lesson_select_with_pagination(opts, training_id, page, total_pages)
+
+        if edit:
+            await message.edit_reply_markup(reply_markup=kb)
+        else:
+            await message.answer("Выберите урок:", reply_markup=kb)
+
+    except Exception as e:
+        logger.error(f"Ошибка при рендеринге списка уроков: {e}")
+        if edit:
+            await message.edit_text("❌ Произошла ошибка при загрузке уроков")
+        else:
+            await message.answer("❌ Произошла ошибка при загрузке уроков")
 
 
 async def _render_students_list(message: types.Message, session, mentor_id: int, training_id: Optional[int], lesson_id: Optional[int], page: int, *, edit: bool = False):
