@@ -307,28 +307,24 @@ async def cb_progress_router(call: CallbackQuery, config):
 
         # Выбор урока: gb:filter:lesson:tr:{id}[:p:{page}]
         if data.startswith("gb:filter:lesson"):
+            parts = data.split(":")
+            # Проверяем формат: gb:filter:lesson или gb:filter:lesson:tr:ID[:p:page]
+            if len(parts) < 5 or parts[3] != "tr":
+                await call.answer("Необходимо сначала выбрать тренинг", show_alert=True)
+                return
+
             # Немедленно отвечаем на callback query
             await call.answer("Загрузка...")
 
-            parts = data.split(":")
-            # Проверяем формат: gb:filter:lesson или gb:filter:lesson:tr:ID[:p:page]
-            if len(parts) < 3:
-                await call.answer("Сначала выберите тренинг", show_alert=True)
-                return
-
             training_id = None
             page = 1
-            if len(parts) >= 5 and parts[3] == "tr":
-                try:
-                    training_id = int(parts[4])
-                    # Проверяем наличие параметра страницы
-                    if len(parts) >= 7 and parts[5] == "p":
-                        page = int(parts[6])
-                except Exception:
-                    await call.answer("Некорректные данные", show_alert=True)
-                    return
-            else:
-                await call.answer("Сначала выберите тренинг", show_alert=True)
+            try:
+                training_id = int(parts[4])
+                # Проверяем наличие параметра страницы
+                if len(parts) >= 7 and parts[5] == "p":
+                    page = int(parts[6])
+            except Exception:
+                await call.answer("Некорректные данные", show_alert=True)
                 return
 
             try:
