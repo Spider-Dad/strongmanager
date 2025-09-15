@@ -21,6 +21,16 @@ from bot.services.database import (
 logger = logging.getLogger(__name__)
 
 
+# ВРЕМЕННЫЙ КОСТЫЛЬ: приводим все datetime к naive для исключения смешения aware/naive
+def _naive(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    try:
+        return dt.replace(tzinfo=None) if getattr(dt, "tzinfo", None) else dt
+    except Exception:
+        # На всякий случай не ломаемся на неожиданных типах
+        return dt
+
 # Статусы табеля
 STATUS_ON_TIME = "on_time"  # сдал вовремя
 STATUS_LATE = "late"  # сдал с опозданием
@@ -48,7 +58,10 @@ def categorize_status(deadline: Optional[datetime], earliest_answer_date: Option
     - Есть ответ: answer_date ≤ deadline → on_time; иначе → late
     - Если дедлайн отсутствует: нет ответа → optional; есть ответ → on_time
     """
-    current_time = now or datetime.now()
+    # Нормализуем к naive, чтобы исключить сравнение aware/naive
+    current_time = _naive(now) or _naive(datetime.now())
+    deadline = _naive(deadline)
+    earliest_answer_date = _naive(earliest_answer_date)
 
     if deadline is None:
         # Для уроков без дедлайна
@@ -92,19 +105,21 @@ async def _fetch_lessons_for_trainings(session: AsyncSession, training_ids: Iter
 
 def get_lesson_state(lesson: Lesson, now: Optional[datetime] = None) -> str:
     """Возвращает состояние урока: not_started | active | completed."""
-    current_time = now or datetime.now()
+    current_time = _naive(now) or _naive(datetime.now())
+    opening_date = _naive(lesson.opening_date)
+    deadline_date = _naive(lesson.deadline_date)
 
-    if lesson.opening_date and lesson.opening_date > current_time:
+    if opening_date and opening_date > current_time:
         return "not_started"
 
     # Для уроков без дедлайна - всегда active после открытия
-    if not lesson.deadline_date:
-        if lesson.opening_date and lesson.opening_date <= current_time:
+    if not deadline_date:
+        if opening_date and opening_date <= current_time:
             return "active"
         return "not_started"
 
     # Для уроков с дедлайном - стандартная логика
-    if lesson.deadline_date <= current_time:
+    if deadline_date <= current_time:
         return "completed"
     return "active"
 
@@ -114,20 +129,22 @@ def get_training_state(lessons: List[Lesson], training: Training = None, now: Op
     if not lessons:
         return "not_started"
 
-    current_time = now or datetime.now()
+    current_time = _naive(now) or _naive(datetime.now())
 
     # Используем даты тренинга для определения состояния
     if training and training.start_date and training.end_date:
-        if current_time < training.start_date:
+        start_date = _naive(training.start_date)
+        end_date = _naive(training.end_date)
+        if current_time < start_date:
             return "not_started"
-        elif current_time >= training.end_date:
+        elif current_time >= end_date:
             return "completed"
         else:
             return "active"
 
     # Fallback: если нет дат тренинга, используем даты уроков
-    opening_dates = [l.opening_date for l in lessons if l.opening_date]
-    deadline_dates = [l.deadline_date for l in lessons if l.deadline_date]
+    opening_dates = [_naive(l.opening_date) for l in lessons if l.opening_date]
+    deadline_dates = [_naive(l.deadline_date) for l in lessons if l.deadline_date]
 
     if opening_dates:
         earliest_opening = min(opening_dates)
