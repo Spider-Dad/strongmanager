@@ -241,8 +241,8 @@ git commit -m "feat: Phase 1 - PostgreSQL schema and models
 **Создать ветку для Фазы 2:**
 ```bash
 git checkout main
+git checkout -b refactor
 git merge refactor/phase1-postgresql-schema
-git push origin main
 
 git checkout -b refactor/phase2-n8n-webhooks
 ```
