@@ -26,10 +26,54 @@ class Config:
             app_root = Path(__file__).resolve().parents[1]
             self.data_dir = app_root / "data"
 
-        self.db_path = self.data_dir / "getcourse_bot.db"
+        # ===== КОНФИГУРАЦИЯ БАЗЫ ДАННЫХ =====
+        # Тип БД: postgresql или sqlite (для обратной совместимости)
+        self.db_type = os.getenv("DB_TYPE", "postgresql").lower()
 
-        # URL для базы данных
-        self.db_url = f"sqlite+aiosqlite:///{self.db_path}"
+        if self.db_type == "postgresql":
+            # PostgreSQL конфигурация
+            # Определяем, используем ли внутреннее имя хоста Amvera или внешнее
+            if self.env == "prod":
+                # Prod: используем внутреннее доменное имя Amvera
+                postgres_host = os.getenv("POSTGRES_HOST_INTERNAL", "amvera-spiderdad-cnpg-getcoursebd-rw")
+            else:
+                # Dev: используем внешний хост для доступа из интернета
+                postgres_host = os.getenv("POSTGRES_HOST_EXTERNAL", "getcoursebd-spiderdad.db-msk0.amvera.tech")
+
+            postgres_port = os.getenv("POSTGRES_PORT", "5432")
+            postgres_user = os.getenv("POSTGRES_USER", "postgresql")
+            postgres_password = os.getenv("POSTGRES_PASSWORD", "")
+            postgres_db = os.getenv("POSTGRES_DB", "GetCourseBD")
+            postgres_schema = os.getenv("POSTGRES_SCHEMA", "public")
+
+            # Формируем URL для asyncpg
+            self.db_url = (
+                f"postgresql+asyncpg://{postgres_user}:{postgres_password}"
+                f"@{postgres_host}:{postgres_port}/{postgres_db}"
+            )
+
+            # Параметры подключения для asyncpg
+            self.db_connect_args = {
+                "server_settings": {
+                    "search_path": postgres_schema,
+                    "timezone": "UTC"
+                }
+            }
+
+            # Сохраняем параметры для использования в других модулях
+            self.postgres_host = postgres_host
+            self.postgres_port = postgres_port
+            self.postgres_user = postgres_user
+            self.postgres_db = postgres_db
+            self.postgres_schema = postgres_schema
+
+        else:
+            # SQLite конфигурация (для обратной совместимости)
+            self.db_path = self.data_dir / "getcourse_bot.db"
+            self.db_url = f"sqlite+aiosqlite:///{self.db_path}"
+            self.db_connect_args = {
+                "timeout": 30.0,
+            }
 
         # Google Sheets credentials
         # Если путь не указан явно, используем путь в папке data
