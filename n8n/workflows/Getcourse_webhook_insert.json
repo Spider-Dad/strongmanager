@@ -1,0 +1,468 @@
+{
+  "name": "Getcourse_webhook_insert",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "getcoursebd",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "e40ed6cc-7f93-4acd-8542-e98cc6f3cfc2",
+      "name": "Webhook",
+      "webhookId": "767cd395-45c7-494f-b5e1-f52c3de56a16"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// Валидация входных данных вебхука\n// ============================================\n\nconst body = $json.body || {};\n\n// Обязательные поля согласно схеме PostgreSQL\nconst requiredFields = [\n  'eventDate',\n  'userId',\n  'userEmail',\n  'answerId'\n];\n\n// Проверка наличия обязательных полей\nconst missingFields = requiredFields.filter(field => {\n  const value = body[field];\n  return value === undefined || value === null || value === '';\n});\n\nif (missingFields.length > 0) {\n  throw new Error(\n    `Отсутствуют обязательные поля: ${missingFields.join(', ')}. ` +\n    `Полученные данные: ${JSON.stringify(body, null, 2)}`\n  );\n}\n\n// Валидация типов данных\nconst errors = [];\n\n// userId должен быть числом или строкой с числом\nif (body.userId && isNaN(Number(body.userId))) {\n  errors.push(`userId должен быть числом, получено: ${body.userId}`);\n}\n\n// answerId должен быть числом или строкой с числом\nif (body.answerId && isNaN(Number(body.answerId))) {\n  errors.push(`answerId должен быть числом, получено: ${body.answerId}`);\n}\n\n// userEmail должен содержать @\nif (body.userEmail && !body.userEmail.includes('@')) {\n  errors.push(`userEmail должен быть валидным email, получено: ${body.userEmail}`);\n}\n\n// eventDate должен быть валидной датой\nif (body.eventDate && isNaN(Date.parse(body.eventDate))) {\n  errors.push(`eventDate должен быть валидной датой, получено: ${body.eventDate}`);\n}\n\n// Если есть ошибки валидации - выбрасываем исключение\nif (errors.length > 0) {\n  throw new Error(\n    `Ошибки валидации данных:\\n${errors.join('\\n')}\\n\\n` +\n    `Полученные данные: ${JSON.stringify(body, null, 2)}`\n  );\n}\n\n// Валидация прошла успешно - передаем данные дальше\nreturn [$json];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        0
+      ],
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Валидация данных",
+      "notesInFlow": true,
+      "notes": "Проверка обязательных полей и типов данных",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "webhook_events",
+          "mode": "list",
+          "cachedResultName": "webhook_events"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "event_date": "={{ $json.body.eventDate }}",
+            "user_id": "={{ $json.body.userId }}",
+            "user_email": "={{ $json.body.userEmail }}",
+            "user_first_name": "={{ $json.body.userFirstName }}",
+            "user_last_name": "={{ $json.body.userLastName }}",
+            "answer_id": "={{ $json.body.answerId }}",
+            "answer_training_id": "={{ $json.body.answerTrainingId }}",
+            "answer_lesson_id": "={{ $json.body.answerLessonId }}",
+            "answer_status": "={{ $json.body.answerStatus }}",
+            "answer_text": "={{ $json.body.answerText }}",
+            "answer_type": "={{ $json.body.answerType }}",
+            "answer_teacher_id": "={{ $json.body.answerTeacherId }}",
+            "raw_payload": "={{ $json.body }}",
+            "processed": false
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "event_date",
+              "displayName": "event_date",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "user_email",
+              "displayName": "user_email",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "user_first_name",
+              "displayName": "user_first_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "user_last_name",
+              "displayName": "user_last_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "answer_id",
+              "displayName": "answer_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "answer_training_id",
+              "displayName": "answer_training_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "answer_lesson_id",
+              "displayName": "answer_lesson_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "answer_status",
+              "displayName": "answer_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "answer_text",
+              "displayName": "answer_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "answer_type",
+              "displayName": "answer_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "answer_teacher_id",
+              "displayName": "answer_teacher_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "raw_payload",
+              "displayName": "raw_payload",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "object",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "processed",
+              "displayName": "processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "error_message",
+              "displayName": "error_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        192,
+        0
+      ],
+      "id": "dcacd94c-5705-471c-a64c-b974641d96b5",
+      "name": "Записать в БД",
+      "retryOnFail": true,
+      "credentials": {
+        "postgres": {
+          "id": "WbJzfRZoYdghS2eI",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        896,
+        -16
+      ],
+      "id": "cab9b592-765b-4411-9672-1ab82b12ba76",
+      "name": "Выход"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// Обработка ошибок ВАЛИДАЦИИ\n// ============================================\n\nconst body = $json.body || {};\nconst error = $json.error || {};\n\n// Формируем сообщение об ошибке валидации\nlet message = `🛑 <b>ОШИБКА ВАЛИДАЦИИ WEBHOOK</b>\\n\\n`;\nmessage += `<b>Ошибка:</b> ${error.message || 'Неизвестная ошибка'}\\n`;\n\n// Добавляем полученные данные\nmessage += `\\n<b>📦 Полученные данные:</b>\\n<code>`;\nif (body.eventDate) message += `eventDate: ${body.eventDate}\\n`;\nif (body.userId) message += `userId: ${body.userId}\\n`;\nif (body.userEmail) message += `userEmail: ${body.userEmail}\\n`;\nif (body.answerId) message += `answerId: ${body.answerId}\\n`;\nif (body.answerTrainingId) message += `trainingId: ${body.answerTrainingId}\\n`;\nif (body.answerLessonId) message += `lessonId: ${body.answerLessonId}\\n`;\nmessage += `</code>`;\n\n// Временная метка\nconst timestamp = new Date().toISOString();\nmessage += `\\n\\n<i>Время: ${timestamp}</i>`;\n\nreturn [{ json: { message } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        176
+      ],
+      "id": "validation-error-handler-001",
+      "name": "Ошибка валидации",
+      "notesInFlow": true,
+      "notes": "Обработка ошибок валидации данных"
+    },
+    {
+      "parameters": {
+        "chatId": "-1003386133985",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        416,
+        176
+      ],
+      "id": "telegram-validation-error-001",
+      "name": "Алерт: Валидация",
+      "webhookId": "telegram-validation-webhook-001",
+      "notesInFlow": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "Kbg7MPi01khEIzLB",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Отправка алерта об ошибке валидации"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// Обработка ошибок ЗАПИСИ В БД\n// ============================================\n\nconst body = $json.body || {};\nconst error = $json.error || {};\n\n// Формируем сообщение об ошибке БД\nlet message = `🛑 <b>ОШИБКА ЗАПИСИ В POSTGRESQL</b>\\n\\n`;\nmessage += `<b>Ошибка:</b> ${error.message || 'Неизвестная ошибка БД'}\\n`;\n\n// Добавляем данные вебхука\nmessage += `\\n<b>📦 Данные вебхука:</b>\\n<code>`;\nif (body.eventDate) message += `eventDate: ${body.eventDate}\\n`;\nif (body.userId) message += `userId: ${body.userId}\\n`;\nif (body.userEmail) message += `userEmail: ${body.userEmail}\\n`;\nif (body.answerId) message += `answerId: ${body.answerId}\\n`;\nif (body.answerTrainingId) message += `trainingId: ${body.answerTrainingId}\\n`;\nif (body.answerLessonId) message += `lessonId: ${body.answerLessonId}\\n`;\nmessage += `</code>`;\n\n// Временная метка\nconst timestamp = new Date().toISOString();\nmessage += `\\n\\n<i>Время: ${timestamp}</i>`;\n\nreturn [{ json: { message } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        -176
+      ],
+      "id": "db-error-handler-001",
+      "name": "Ошибка БД",
+      "notesInFlow": true,
+      "notes": "Обработка ошибок записи в PostgreSQL"
+    },
+    {
+      "parameters": {
+        "chatId": "-1003386133985",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        640,
+        -176
+      ],
+      "id": "telegram-db-error-001",
+      "name": "Алерт: БД",
+      "webhookId": "telegram-db-webhook-001",
+      "notesInFlow": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "Kbg7MPi01khEIzLB",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Отправка алерта об ошибке БД"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Валидация данных",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Валидация данных": {
+      "main": [
+        [
+          {
+            "node": "Записать в БД",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка валидации",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Записать в БД": {
+      "main": [
+        [
+          {
+            "node": "Выход",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка БД",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ошибка валидации": {
+      "main": [
+        [
+          {
+            "node": "Алерт: Валидация",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Алерт: Валидация": {
+      "main": [
+        [
+          {
+            "node": "Выход",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ошибка БД": {
+      "main": [
+        [
+          {
+            "node": "Алерт: БД",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Алерт: БД": {
+      "main": [
+        [
+          {
+            "node": "Выход",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "errorWorkflow": "YuKEJrrAk0rOUAWj"
+  },
+  "versionId": "2a461e13-cc07-4ce7-b863-250623f4381d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "246861e83e3dee1b76bce7649600b7421f7a891512c38c8790a3a160a7b43c57"
+  },
+  "id": "YuKEJrrAk0rOUAWj",
+  "tags": []
+}
