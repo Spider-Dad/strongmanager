@@ -34,10 +34,17 @@ async def process_email(message: types.Message, state: FSMContext, config):
     try:
         # Прямая работа с PostgreSQL
         async for session in get_session():
+            # Текущая дата в UTC для проверки актуальности записи
+            now_utc = datetime.now(pytz.UTC)
+
             # Поиск активного ментора по email в PostgreSQL
+            # Проверяем, что email существует и запись актуальна:
+            # - текущая дата >= valid_from
+            # - текущая дата <= valid_to
             mentor_query = select(Mentor).where(
                 Mentor.email == email,
-                Mentor.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)  # Активный ментор
+                Mentor.valid_from <= now_utc,
+                Mentor.valid_to >= now_utc
             )
             result = await session.execute(mentor_query)
             mentor = result.scalars().first()
@@ -51,9 +58,8 @@ async def process_email(message: types.Message, state: FSMContext, config):
 
             # Обновление telegram_id
             mentor.telegram_id = message.from_user.id
-            mentor.first_name = message.from_user.first_name
-            mentor.last_name = message.from_user.last_name
             mentor.username = message.from_user.username
+            # Примечание: first_name и last_name НЕ обновляются при регистрации
 
             await session.commit()
 
@@ -79,9 +85,16 @@ async def check_auth(telegram_id):
     """Проверка авторизации через PostgreSQL"""
     try:
         async for session in get_session():
+            # Текущая дата в UTC для проверки актуальности записи
+            now_utc = datetime.now(pytz.UTC)
+
+            # Проверяем, что ментор существует и запись актуальна:
+            # - текущая дата >= valid_from
+            # - текущая дата <= valid_to
             mentor_query = select(Mentor).where(
                 Mentor.telegram_id == telegram_id,
-                Mentor.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                Mentor.valid_from <= now_utc,
+                Mentor.valid_to >= now_utc
             )
             result = await session.execute(mentor_query)
             mentor = result.scalars().first()
