@@ -1,29 +1,104 @@
 # GetCourse Telegram Bot
 
-**Версия: 1.2.0**
+**Версия: 2.0.0 (PostgreSQL + n8n)**
 
 Телеграм-бот для оповещения наставников онлайн школы Strong Manager о действиях студентов в платформе GetCourse.
 
 ---
 
-## Функциональность
+## ✅ Новая архитектура (после рефакторинга)
 
-- Авторизация наставников по email (привязка Telegram к email из справочника mentors)
-- Получение уведомлений о новых ответах студентов на задания (тип: answerToLesson)
-- Получение уведомлений о комментариях студентов к урокам (тип: commentOnLesson)
-- Получение уведомлений о приближающихся дедлайнах, если студент не дал ответ (тип: deadlineApproaching)
-- Исключение дублей уведомлений (каждое событие — только одно уведомление)
-- Логирование истории отправленных уведомлений
+### Технологический стек
+
+- **База данных:** PostgreSQL 17.6 на Amvera
+- **Обработка вебхуков:** n8n workflows → PostgreSQL
+- **Бизнес-логика:** Python 3.11+ сервисы
+- **Уведомления:** Прямая отправка через Telegram Bot API
+- **Планировщик:** APScheduler для периодических задач
+
+### Компоненты системы
+
+```
+GetCourse → n8n → PostgreSQL → Python Services → Telegram Bot → Менторы
+```
+
+1. **GetCourse** отправляет вебхуки о событиях (новый ответ, комментарий)
+2. **n8n** валидирует и записывает в таблицу `webhook_events`
+3. **WebhookProcessingService** обрабатывает вебхуки каждые 30 сек
+4. **DeadlineCheckService** проверяет дедлайны каждый час
+5. **ReminderService** создает напоминания раз в день (12:00 MSK)
+6. **NotificationSenderService** отправляет уведомления каждые 15 сек
+7. **Telegram Bot** доставляет уведомления менторам
+
+### Преимущества новой архитектуры
+
+✅ **Надежность:** PostgreSQL + транзакции + retry механизмы
+✅ **Производительность:** Асинхронная обработка, батчинг, connection pooling
+✅ **Масштабируемость:** Легко добавить новые типы уведомлений
+✅ **Мониторинг:** Детальное логирование, статистика в БД
+✅ **Независимость:** Нет зависимости от Google Sheets и Apps Script
 
 ---
 
-## Логика работы
+## Функциональность
 
-1. Бот периодически опрашивает Google Sheets (лист notifications) через API
-2. Получает новые уведомления для наставников (по их Telegram ID)
-3. Отправляет сообщения в Telegram (поддержка форматирования)
-4. Обновляет статус уведомления (sent/failed)
-5. Ведёт историю отправленных уведомлений
+### Для наставников
+
+- **Авторизация** по email (привязка Telegram к справочнику PostgreSQL)
+- **Уведомления о новых ответах** студентов на задания
+- **Уведомления о дедлайнах** (за 36 часов, если студент не ответил)
+- **Ежедневные напоминания** о непроверенных ответах (12:00 MSK)
+- **Табель успеваемости** студентов (опционально через `GRADEBOOK_ENABLED`)
+
+### Для администраторов
+
+- **Доступ ко всем функциям** наставников
+- **Статистика по всем наставникам** (в табеле)
+- **Синхронизация данных** с Google Sheets (опционально)
+
+---
+
+## Логика работы (новая)
+
+### 1. Обработка вебхуков (каждые 30 сек)
+
+```python
+webhook_events (processed=false)
+  → WebhookProcessingService
+  → find mentor через mapping
+  → create notification (status=pending)
+  → update webhook (processed=true)
+```
+
+### 2. Проверка дедлайнов (каждый час)
+
+```python
+lessons (deadline < now + 36h)
+  → DeadlineCheckService
+  → find students without answers
+  → group by mentors
+  → check duplicates
+  → create notifications (status=pending)
+```
+
+### 3. Отправка уведомлений (каждые 15 сек)
+
+```python
+notifications (status=pending)
+  → NotificationSenderService
+  → get mentor telegram_id
+  → send to Telegram
+  → update status (sent/failed/no_telegram_id)
+```
+
+### 4. Напоминания (раз в день 12:00 MSK)
+
+```python
+webhook_events (date = now - 2 days, status=new)
+  → ReminderService
+  → group by mentors
+  → create reminder notifications (status=pending)
+```
 
 ### Обработка ошибок
 

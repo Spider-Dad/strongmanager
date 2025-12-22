@@ -84,18 +84,52 @@ async def main():
         # Запуск автоматической синхронизации если настроена
         await sync_service.start_auto_sync()
 
-        # Инициализация планировщика для проверки уведомлений
+        # Инициализация планировщика для периодических задач
         scheduler = AsyncIOScheduler()
 
-        # Импорт здесь для избежания циклических импортов
-        from bot.services.notifications import check_new_notifications
+        # Импорт новых сервисов
+        from bot.services.webhook_processor import WebhookProcessingService
+        from bot.services.deadline_checker import DeadlineCheckService
+        from bot.services.reminder_service import ReminderService
+        from bot.services.notification_sender import NotificationSenderService
 
-        # Добавление задачи проверки уведомлений
+        # Инициализация сервисов
+        webhook_processor = WebhookProcessingService(config)
+        deadline_checker = DeadlineCheckService(config)
+        reminder_service = ReminderService(config)
+        notification_sender = NotificationSenderService(config, bot)
+
+        # Задача 1: Обработка вебхуков (каждые 30 секунд)
         scheduler.add_job(
-            check_new_notifications,
+            webhook_processor.process_pending_webhooks,
             'interval',
-            seconds=config.polling_interval,
-            args=[bot, config]
+            seconds=config.webhook_processing_interval,
+            id='process_webhooks'
+        )
+
+        # Задача 2: Проверка дедлайнов (каждый час)
+        scheduler.add_job(
+            deadline_checker.check_deadlines,
+            'interval',
+            minutes=config.deadline_check_interval_minutes,
+            id='check_deadlines'
+        )
+
+        # Задача 3: Отправка уведомлений (каждые 15 секунд)
+        scheduler.add_job(
+            notification_sender.send_pending_notifications,
+            'interval',
+            seconds=config.notification_send_interval,
+            id='send_notifications'
+        )
+
+        # Задача 4: Напоминания о непроверенных ответах (раз в день в 12:00 MSK)
+        scheduler.add_job(
+            reminder_service.process_reminder_notifications,
+            'cron',
+            hour=config.reminder_trigger_hour,
+            timezone='Europe/Moscow',
+            id='process_reminders'
         )
 
         # Добавление задачи очистки старых логов

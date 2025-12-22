@@ -2,12 +2,12 @@ import logging
 import re
 from datetime import datetime
 
+import pytz
 from aiogram import Dispatcher, types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from sqlalchemy import select
 
-from bot.services.api import get_mentor_by_email, register_telegram_id, ApiError
 from bot.services.database import Mentor, get_session
 from bot.utils.markdown import escape_markdown_v2, bold
 
@@ -32,81 +32,59 @@ async def process_email(message: types.Message, state: FSMContext, config):
         return  # Сохраняем текущее состояние
 
     try:
-        # Регистрация Telegram ID в Google Sheets напрямую
-        # Если ментор с таким email не существует, API вернет ошибку
-        registration_result = await register_telegram_id(
-            config.api_url,
-            email,
-            message.from_user.id,
-            message.from_user.username,
-            config
-        )
-
-        # Если мы дошли сюда, значит регистрация в API успешна
-        # Сохраняем информацию о менторе в локальной БД
+        # Прямая работа с PostgreSQL
         async for session in get_session():
-            # Проверка, существует ли уже такой ментор по email
-            existing_mentor = await session.execute(
-                select(Mentor).where(Mentor.email == email)
+            # Поиск активного ментора по email в PostgreSQL
+            mentor_query = select(Mentor).where(
+                Mentor.email == email,
+                Mentor.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)  # Активный ментор
             )
-            existing_mentor = existing_mentor.scalars().first()
+            result = await session.execute(mentor_query)
+            mentor = result.scalars().first()
 
-            if existing_mentor:
-                # Обновление существующего ментора
-                existing_mentor.telegram_id = message.from_user.id
-                existing_mentor.first_name = message.from_user.first_name
-                existing_mentor.last_name = message.from_user.last_name
-                existing_mentor.username = message.from_user.username
-                # Если есть поле updated_at, можно обновить его здесь
-            else:
-                # Создание нового ментора
-                new_mentor = Mentor(
-                    telegram_id=message.from_user.id,
-                    email=email,
-                    first_name=message.from_user.first_name,
-                    last_name=message.from_user.last_name,
-                    username=message.from_user.username
+            if not mentor:
+                await message.answer(
+                    f"Email не найден в базе менторов онлайн школы Strong Manager\\. "
+                    f"Пожалуйста, проверьте правильность ввода или обратитесь к администратору\\."
                 )
-                session.add(new_mentor)
+                return
+
+            # Обновление telegram_id
+            mentor.telegram_id = message.from_user.id
+            mentor.first_name = message.from_user.first_name
+            mentor.last_name = message.from_user.last_name
+            mentor.username = message.from_user.username
 
             await session.commit()
 
-        # Завершение состояния регистрации
-        await state.finish()
+            await state.finish()
+            await message.answer(
+                f"{bold('Вы успешно зарегистрированы в системе оповещений как наставник!')}\n\n"
+                f"Теперь вы будете получать уведомления о действиях ваших студентов\\.\n\n"
+                f"Откройте /start для главного меню или /about для справки\\."
+            )
 
-        # Отправка приветственного сообщения
-        await message.answer(
-            f"{bold('Вы успешно зарегистрированы в системе оповещений как наставник!')}\n\n"
-            f"Теперь вы будете получать уведомления о действиях ваших студентов\\.\n\n"
-            f"Откройте /start для главного меню или /about для справки\."
-        )
-
-        logger.info(f"Ментор {message.from_user.id} ({email}) успешно зарегистрирован")
-
-    except ApiError as e:
-        error_message = str(e)
-        if "Mentor with this email not found" in error_message:
-            await message.answer(f"Email не найден в базе менторов онлайн школы Strong Manager\\. Пожалуйста, проверьте правильность ввода или обратитесь к администратору\\.")
-        else:
-            logger.error(f"Ошибка API при регистрации ментора {message.from_user.id} ({email}): {e}")
-            await message.answer(f"Произошла ошибка при регистрации\\. Пожалуйста, попробуйте позже или обратитесь к администратору\\.")
-            await state.finish()  # Сбрасываем состояние при критической ошибке
+            logger.info(f"Ментор {message.from_user.id} ({email}) зарегистрирован")
 
     except Exception as e:
-        logger.error(f"Ошибка при регистрации ментора {message.from_user.id} ({email}): {e}")
-        await message.answer(f"Произошла ошибка при регистрации\\. Пожалуйста, попробуйте позже или обратитесь к администратору\\.")
-        await state.finish()  # Сбрасываем состояние при критической ошибке
+        logger.error(f"Ошибка при регистрации: {e}", exc_info=True)
+        await message.answer(
+            f"Произошла ошибка при регистрации\\. "
+            f"Пожалуйста, попробуйте позже или обратитесь к администратору\\."
+        )
+        await state.finish()
 
 # Проверка авторизации пользователя
 async def check_auth(telegram_id):
+    """Проверка авторизации через PostgreSQL"""
     try:
         async for session in get_session():
-            mentor = await session.execute(
-                select(Mentor).where(
-                    Mentor.telegram_id == telegram_id
-                )
+            mentor_query = select(Mentor).where(
+                Mentor.telegram_id == telegram_id,
+                Mentor.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
             )
-            mentor = mentor.scalars().first()
+            result = await session.execute(mentor_query)
+            mentor = result.scalars().first()
             return mentor is not None
     except Exception as e:
         logger.error(f"Ошибка при проверке авторизации пользователя {telegram_id}: {e}")

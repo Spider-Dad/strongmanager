@@ -113,3 +113,20 @@ class Config:
         # Фича-флаги
         # Включение функционала табеля (по умолчанию выключен для безопасного релиза)
         self.gradebook_enabled = os.getenv("GRADEBOOK_ENABLED", "false").lower() == "true"
+
+        # ===== НАСТРОЙКИ ОБРАБОТКИ ВЕБХУКОВ И УВЕДОМЛЕНИЙ =====
+        # Интервалы обработки (в секундах/минутах)
+        self.webhook_processing_interval = int(os.getenv("WEBHOOK_PROCESSING_INTERVAL", "30"))
+        self.deadline_check_interval_minutes = int(os.getenv("DEADLINE_CHECK_INTERVAL_MINUTES", "60"))
+        self.notification_send_interval = int(os.getenv("NOTIFICATION_SEND_INTERVAL", "15"))
+
+        # Параметры дедлайнов
+        self.deadline_warning_hours = int(os.getenv("DEADLINE_WARNING_HOURS", "36"))
+
+        # Параметры напоминаний
+        self.reminder_trigger_hour = int(os.getenv("REMINDER_TRIGGER_HOUR", "12"))
+        self.reminder_analysis_days_back = int(os.getenv("REMINDER_ANALYSIS_DAYS_BACK", "2"))
+
+        # Лимиты обработки
+        self.webhook_batch_size = int(os.getenv("WEBHOOK_BATCH_SIZE", "50"))
+        self.notification_batch_size = int(os.getenv("NOTIFICATION_BATCH_SIZE", "20"))
