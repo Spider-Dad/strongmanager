@@ -1,18 +1,14 @@
 """
 SQLAlchemy модели и конфигурация базы данных для GetCourse Bot
 
-Поддерживает:
-- PostgreSQL (asyncpg) - основная БД для production
-- SQLite (aiosqlite) - для локальной разработки и тестирования
+Использует PostgreSQL (asyncpg) для всех окружений (dev/prod)
 
-Версия: 2.0.0 (PostgreSQL)
+Версия: 2.0.0 (PostgreSQL only)
 """
 
 import logging
-from pathlib import Path
-from datetime import datetime
 
-from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, Text, event, TIMESTAMP
+from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, Text, TIMESTAMP
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.ext.declarative import declarative_base
@@ -323,67 +319,27 @@ async_session = None
 
 async def setup_database(config):
     """
-    Инициализация базы данных
-
-    Поддерживает:
-    - PostgreSQL (asyncpg) для production
-    - SQLite (aiosqlite) для dev/testing
+    Инициализация базы данных PostgreSQL
 
     Args:
         config: Объект конфигурации бота
     """
     global async_engine, async_session
 
-    logger.info(f"Инициализация БД: тип={config.db_type}, URL={config.db_url}")
+    logger.info(f"Инициализация PostgreSQL БД: {config.db_url}")
 
-    if config.db_type == "postgresql":
-        # PostgreSQL конфигурация
-        async_engine = create_async_engine(
-            config.db_url,
-            echo=False,
-            pool_pre_ping=True,
-            pool_size=10,  # Размер пула соединений
-            max_overflow=20,  # Максимум дополнительных соединений
-            pool_recycle=3600,  # Пересоздание соединений каждый час
-            connect_args=config.db_connect_args
-        )
+    # PostgreSQL конфигурация
+    async_engine = create_async_engine(
+        config.db_url,
+        echo=False,
+        pool_pre_ping=True,
+        pool_size=10,  # Размер пула соединений
+        max_overflow=20,  # Максимум дополнительных соединений
+        pool_recycle=3600,  # Пересоздание соединений каждый час
+        connect_args=config.db_connect_args
+    )
 
-        logger.info(f"PostgreSQL: подключение к {config.postgres_host}:{config.postgres_port}/{config.postgres_db}")
-
-    else:
-        # SQLite конфигурация (для обратной совместимости)
-        config.data_dir.mkdir(parents=True, exist_ok=True)
-
-        async_engine = create_async_engine(
-            config.db_url,
-            echo=False,
-            pool_pre_ping=True,
-            pool_size=10,  # Размер пула соединений
-            max_overflow=20,  # Максимум дополнительных соединений
-            pool_recycle=3600,  # Пересоздание соединений каждый час
-            connect_args={
-                **config.db_connect_args,
-                "timeout": 30.0, # <-- Добавить таймаут 60 секунд
-            }
-        )
-
-        # SQLite-специфичные настройки
-        @event.listens_for(async_engine.sync_engine, "connect")
-        def _set_sqlite_pragma(dbapi_connection, connection_record):
-            try:
-                cursor = dbapi_connection.cursor()
-                cursor.execute("PRAGMA journal_mode=WAL")
-                cursor.execute("PRAGMA synchronous=NORMAL")
-                cursor.execute("PRAGMA busy_timeout=30000")
-                cursor.close()
-            except Exception as e:
-                logger.warning(f"Не удалось установить PRAGMA для SQLite: {e}")
-
-        @event.listens_for(async_engine.sync_engine, "begin")
-        def _do_begin(conn):
-            conn.exec_driver_sql("BEGIN IMMEDIATE")
-
-        logger.info(f"SQLite: использование файла {config.db_path}")
+    logger.info(f"PostgreSQL: подключение к {config.postgres_host}:{config.postgres_port}/{config.postgres_db}")
 
     # Создание асинхронной сессии
     async_session = sessionmaker(
@@ -392,13 +348,8 @@ async def setup_database(config):
         class_=AsyncSession
     )
 
-    # Создание таблиц (только для SQLite, для PostgreSQL используется schema.sql)
-    if config.db_type == "sqlite":
-        async with async_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("SQLite: таблицы созданы")
-    else:
-        logger.info("PostgreSQL: таблицы должны быть созданы через schema.sql")
+    # Таблицы создаются через schema.sql (не автоматически)
+    logger.info("PostgreSQL: таблицы должны быть созданы через db/schema.sql или db/init_database.py")
 
     logger.info(f"База данных инициализирована: {config.db_url}")
 

@@ -1,10 +1,8 @@
 import logging
 from aiogram import Dispatcher, types
 from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
-
 from bot.handlers.auth import Registration, check_auth
-from bot.utils.markdown import bold, italic, escape_markdown_v2
+from bot.utils.markdown import bold, escape_markdown_v2
 from bot.keyboards.main_menu import kb_main_menu_admin, kb_main_menu_mentor, kb_back_to_main
 from bot.services.database import get_session
 

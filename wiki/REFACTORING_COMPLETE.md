@@ -349,18 +349,33 @@ SELECT
 - `wiki/PHASE3_TESTING_GUIDE.md` - руководство по тестированию
 - `wiki/REFACTORING_COMPLETE.md` - этот файл
 
-### Измененные файлы (Фаза 3)
+### Измененные файлы (Фаза 3 + Очистка)
 
 **Код:**
 - `bot/handlers/auth.py` - удалены GAS API зависимости
-- `main.py` - добавлены 4 новые задачи APScheduler
-- `bot/config.py` - добавлены 8 новых параметров
-- `env.example` - обновлен с новыми параметрами
-- `requirements.txt` - добавлен pytz
-- `README.md` - обновлен с новой архитектурой
+- `bot/handlers/admin.py` - удалена команда /sync и все sync callback-хэндлеры
+- `main.py` - удален SyncService, добавлены 4 новые задачи APScheduler
+- `bot/config.py` - удалены SQLite, Google Sheets, api_url параметры
+- `bot/services/database.py` - удален SQLite код, только PostgreSQL
+- `env.example` - закомментированы устаревшие GAS/Google Sheets параметры
+- `requirements.txt` - удалены aiosqlite, gspread, google-auth*, requests
+- `README.md` - удалены разделы о синхронизации, обновлена архитектура
 
 **Документация:**
 - `getcourse_apps_script/README.md` - пометка "ARCHIVED"
+- `wiki/PHASE3_COMPLETE.md` - добавлен список удаленных файлов
+
+### Удаленные файлы (Фаза 3 + Очистка)
+
+**Python-сервисы (устаревшие):**
+- `bot/services/api.py` - GAS API функции (438 строк)
+- `bot/services/sync_service.py` - синхронизация GAS ↔ SQLite (440 строк)
+- `bot/services/notifications.py` - старая логика через GAS API (202 строки)
+
+**Скрипты:**
+- `import_gsheets_to_sqlite.py` - импорт из Google Sheets (185 строк)
+
+**ИТОГО удалено:** ~1265 строк устаревшего кода
 
 ### Удаленные зависимости
 

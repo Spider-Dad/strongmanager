@@ -232,5 +232,3 @@ class NotificationCalculationService:
 
         # Создаем SHA256 хэш
         return hashlib.sha256(signature_string.encode()).hexdigest()
-
-

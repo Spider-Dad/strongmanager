@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 from bot.services.gradebook_service import (
     build_mentor_overview,
-    build_admin_overview,
     STATUS_ON_TIME,
     STATUS_LATE,
     STATUS_NO_BEFORE_DEADLINE,
@@ -22,11 +21,8 @@ from bot.services.gradebook_service import (
 from bot.utils.markdown import escape_markdown_v2, bold, italic
 from bot.keyboards.gradebook import (
     kb_progress_filters,
-    kb_training_select,
-    kb_pagination,
     kb_filters_with_pagination,
     kb_training_select_with_status,
-    kb_lesson_select_with_status,
     _kb_lesson_select_with_pagination,
 )
 

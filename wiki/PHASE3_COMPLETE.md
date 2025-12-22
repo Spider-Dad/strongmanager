@@ -229,37 +229,66 @@ SELECT
 
 ---
 
-## Удаление зависимостей от GAS
+## Удаление зависимостей от GAS и SQLite
 
-### Что было удалено/обновлено:
+### ✅ Удалены файлы:
+
+1. **`bot/services/api.py`** - весь файл (GAS API функции)
+2. **`bot/services/sync_service.py`** - весь файл (синхронизация GAS ↔ SQLite)
+3. **`bot/services/notifications.py`** - весь файл (старая логика через GAS API)
+4. **`import_gsheets_to_sqlite.py`** - весь файл (импорт из Google Sheets)
+
+### ✅ Обновлены файлы:
 
 1. **`bot/handlers/auth.py`**
    - ❌ Удалены импорты: `get_mentor_by_email`, `register_telegram_id`, `ApiError`
    - ✅ Прямая работа с PostgreSQL
 
-2. **`main.py`**
+2. **`bot/handlers/admin.py`**
+   - ❌ Удалена команда `/sync` и все callback-хэндлеры синхронизации
+   - ❌ Удален импорт `SyncService`
+
+3. **`main.py`**
    - ❌ Удалена задача: `check_new_notifications` (через GAS API)
-   - ✅ Добавлены 4 новые задачи
+   - ❌ Удален `SyncService` (инициализация, запуск, остановка)
+   - ✅ Добавлены 4 новые задачи APScheduler
 
-3. **`bot/services/api.py`** (опционально)
-   - Файл больше не используется после Фазы 3
-   - Можно удалить или переименовать в `api_deprecated.py`
+4. **`bot/config.py`**
+   - ❌ Удалены: `self.api_url`, `self.polling_interval`
+   - ❌ Удалена SQLite конфигурация
+   - ❌ Удалена Google Sheets credentials конфигурация
+   - ✅ Только PostgreSQL
 
-4. **`bot/services/notifications.py`** (опционально)
-   - Функция `check_new_notifications()` больше не используется
-   - Заменена на `NotificationSenderService`
+5. **`bot/services/database.py`**
+   - ❌ Удалена SQLite конфигурация и PRAGMA настройки
+   - ✅ Только PostgreSQL (asyncpg)
+
+6. **`env.example`**
+   - ❌ Закомментированы: `API_URL`, `POLLING_INTERVAL`
+   - ❌ Закомментированы: `SYNC_*`, `GOOGLE_*` параметры
+   - ✅ Оставлены только актуальные параметры
+
+7. **`requirements.txt`**
+   - ❌ Удалены: `aiosqlite`, `gspread`, `google-auth*` (4 пакета)
+   - ❌ Удален: `requests` (использовался только для GAS API)
+   - ✅ Добавлен: `pytest`, `pytz`
+
+8. **`README.md`**
+   - ❌ Удалены разделы о синхронизации с Google Sheets
+   - ❌ Удалены инструкции по Google Cloud credentials
+   - ✅ Добавлены разделы о новой архитектуре
 
 ### Проверка отсутствия зависимостей
 
-```bash
+```powershell
 # В директории getcourse_bot/
-grep -r "api_url" bot/ --exclude-dir=__pycache__
-grep -r "get_new_notifications" bot/ --exclude-dir=__pycache__
-grep -r "register_telegram_id" bot/ --exclude-dir=__pycache__
-grep -r "Google.*Script" bot/ --exclude-dir=__pycache__
+findstr /s /i "api_url" bot\*.py
+findstr /s /i "SyncService" bot\*.py
+findstr /s /i "get_new_notifications" bot\*.py
+findstr /s /i "aiosqlite" bot\*.py
 ```
 
-**Ожидаемый результат:** Только ссылки в комментариях или старых файлах (можно игнорировать)
+**Ожидаемый результат:** Нет активных использований (только комментарии)
 
 ---
 

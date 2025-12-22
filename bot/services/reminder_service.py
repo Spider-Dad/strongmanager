@@ -280,5 +280,3 @@ class ReminderService:
         except Exception as e:
             logger.error(f"Ошибка при поиске ментора: {e}", exc_info=True)
             return None
-
-

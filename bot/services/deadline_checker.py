@@ -7,7 +7,7 @@
 
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import List, Dict
 from collections import defaultdict
 
 import pytz
@@ -15,7 +15,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.services.database import (
-    get_session, Lesson, Training, Student, Mentor, Mapping,
+    get_session, Lesson, Training, Student, Mapping,
     WebhookEvent, Notification
 )
 from bot.services.notification_calculator import NotificationCalculationService
@@ -323,5 +323,3 @@ class DeadlineCheckService:
         except Exception as e:
             logger.error(f"Ошибка при группировке студентов: {e}", exc_info=True)
             return {}
-
-

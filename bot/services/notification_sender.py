@@ -196,5 +196,3 @@ class NotificationSenderService:
             jitter=True,
             retry_exceptions=[TelegramAPIError]
         )
-
-

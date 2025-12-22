@@ -9,7 +9,7 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from sqlalchemy import select
 
 from bot.services.database import Mentor, get_session
-from bot.utils.markdown import escape_markdown_v2, bold
+from bot.utils.markdown import bold
 
 logger = logging.getLogger(__name__)
 

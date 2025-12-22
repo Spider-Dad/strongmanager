@@ -7,7 +7,7 @@
 
 import logging
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Optional
 
 import pytz
 from sqlalchemy import select, and_
@@ -42,7 +42,7 @@ class WebhookProcessingService:
                 batch_size = self.config.webhook_batch_size
 
                 query = select(WebhookEvent).where(
-                    WebhookEvent.processed == False
+                    WebhookEvent.processed.is_(False)
                 ).order_by(WebhookEvent.created_at).limit(batch_size)
 
                 result = await session.execute(query)
@@ -318,5 +318,3 @@ class WebhookProcessingService:
         except Exception as e:
             logger.error(f"Ошибка при создании уведомления: {e}", exc_info=True)
             raise
-
-
