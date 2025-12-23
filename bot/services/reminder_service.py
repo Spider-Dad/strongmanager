@@ -48,6 +48,15 @@ class ReminderService:
             # Приводим к началу дня
             analysis_date = analysis_date.replace(hour=0, minute=0, second=0, microsecond=0)
 
+            # убрать\закомментировать логирование после тестирования
+            # now_utc = datetime.now(pytz.UTC)
+            # now_moscow = now_utc.astimezone(self.moscow_tz)
+            # logger.debug(
+            #     f"[DEBUG] Обработка напоминаний: дата анализа UTC={analysis_date}, "
+            #     f"МСК={analysis_date.astimezone(self.moscow_tz).date()}, "
+            #     f"текущее время UTC={now_utc}, МСК={now_moscow}"
+            # )
+
             logger.info(f"Обработка напоминаний для даты: {analysis_date.date()}")
 
             async for session in get_session():
@@ -101,8 +110,16 @@ class ReminderService:
                         session.add(notification)
                         reminders_created += 1
 
+                        # Получаем ментора для логирования
                         mentor = await session.get(Mentor, mentor_id)
-                        mentor_name = f"{mentor.first_name or ''} {mentor.last_name or ''}".strip() if mentor else str(mentor_id)
+                        if mentor:
+                            mentor_name = f"{mentor.first_name or ''} {mentor.last_name or ''}".strip()
+                        else:
+                            mentor_name = str(mentor_id)
+                            # убрать\закомментировать логирование после тестирования
+                            # logger.debug(
+                            #     f"[DEBUG] Ментор с ID {mentor_id} не найден в БД при логировании"
+                            # )
 
                         logger.info(
                             f"Создано напоминание для наставника {mentor_name} ({mentor_id}), "
@@ -200,20 +217,51 @@ class ReminderService:
             mentor_groups = defaultdict(list)
 
             for answer in answers:
+                # Проверяем наличие answer_training_id
+                if answer.get('answer_training_id') is None:
+                    # убрать\закомментировать логирование после тестирования
+                    # logger.debug(
+                    #     f"[DEBUG] Пропущен ответ студента {answer.get('user_id')}: "
+                    #     f"answer_training_id отсутствует"
+                    # )
+                    continue
+
+                # Преобразуем Integer в строку для поиска тренинга
+                try:
+                    training_id_str = str(answer['answer_training_id'])
+                except (ValueError, TypeError) as e:
+                    # убрать\закомментировать логирование после тестирования
+                    # logger.debug(
+                    #     f"[DEBUG] Ошибка преобразования answer_training_id "
+                    #     f"'{answer.get('answer_training_id')}' в строку: {e}"
+                    # )
+                    continue
+
                 # Находим наставника для этого студента и тренинга
                 mentor_id = await self._find_mentor_for_answer(
                     session,
                     answer['user_id'],
-                    answer['answer_training_id']
+                    training_id_str
                 )
 
                 if mentor_id:
                     mentor_groups[mentor_id].append(answer)
+                    # убрать\закомментировать логирование после тестирования
+                    # logger.debug(
+                    #     f"[DEBUG] Найден ментор {mentor_id} для студента {answer['user_id']} "
+                    #     f"в тренинге {training_id_str}"
+                    # )
                 else:
                     logger.warning(
                         f"Не найден наставник для студента {answer['user_id']} "
-                        f"в тренинге {answer['answer_training_id']}"
+                        f"в тренинге {training_id_str}"
                     )
+
+            # убрать\закомментировать логирование после тестирования
+            # logger.debug(
+            #     f"[DEBUG] group_answers_by_mentor: обработано ответов {len(answers)}, "
+            #     f"найдено менторов {len(mentor_groups)}"
+            # )
 
             return dict(mentor_groups)
 
@@ -233,49 +281,128 @@ class ReminderService:
         Args:
             session: Сессия БД
             student_getcourse_id: GetCourse ID студента
-            training_getcourse_id: GetCourse ID тренинга
+            training_getcourse_id: GetCourse ID тренинга (строка)
 
         Returns:
             ID ментора (из таблицы mentors) или None
         """
         try:
-            # Находим студента
+            # Текущее время для проверки актуальности записей
+            now_utc = datetime.now(pytz.UTC)
+
+            # убрать\закомментировать логирование после тестирования
+            # logger.debug(
+            #     f"[DEBUG] _find_mentor_for_answer: student_getcourse_id={student_getcourse_id}, "
+            #     f"training_getcourse_id={training_getcourse_id}, now_utc={now_utc}"
+            # )
+
+            # Находим студента по GetCourse ID с проверкой актуальности
             student_query = select(Student).where(
-                Student.student_id == student_getcourse_id,
-                Student.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                and_(
+                    Student.student_id == student_getcourse_id,
+                    Student.valid_from <= now_utc,
+                    Student.valid_to >= now_utc
+                )
             )
             student_result = await session.execute(student_query)
             student = student_result.scalars().first()
 
             if not student:
+                # убрать\закомментировать логирование после тестирования
+                # logger.debug(
+                #     f"[DEBUG] Студент с GetCourse ID {student_getcourse_id} не найден или неактуален"
+                # )
                 return None
 
-            # Находим тренинг
+            # убрать\закомментировать логирование после тестирования
+            # logger.debug(
+            #     f"[DEBUG] Найден студент: id={student.id}, student_id={student.student_id}, "
+            #     f"valid_from={student.valid_from}, valid_to={student.valid_to}"
+            # )
+
+            # Находим тренинг по GetCourse ID с проверкой актуальности
             training_query = select(Training).where(
-                Training.training_id == training_getcourse_id,
-                Training.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                and_(
+                    Training.training_id == training_getcourse_id,
+                    Training.valid_from <= now_utc,
+                    Training.valid_to >= now_utc
+                )
             )
             training_result = await session.execute(training_query)
             training = training_result.scalars().first()
 
             if not training:
+                # убрать\закомментировать логирование после тестирования
+                # logger.debug(
+                #     f"[DEBUG] Тренинг с GetCourse ID {training_getcourse_id} не найден или неактуален"
+                # )
                 return None
 
-            # Находим mapping
+            # убрать\закомментировать логирование после тестирования
+            # logger.debug(
+            #     f"[DEBUG] Найден тренинг: id={training.id}, training_id={training.training_id}, "
+            #     f"valid_from={training.valid_from}, valid_to={training.valid_to}"
+            # )
+
+            # Находим mapping по GetCourse ID с проверкой актуальности
+            # ВАЖНО: mapping.student_id и mapping.training_id хранят GetCourse ID
+            # (как в webhook_processor и deadline_checker)
+            # Приводим training_getcourse_id к int для сравнения
+            try:
+                training_gc_id_int = int(training_getcourse_id)
+            except (ValueError, TypeError):
+                logger.error(
+                    f"Не удалось преобразовать training_getcourse_id '{training_getcourse_id}' в int"
+                )
+                return None
+
             mapping_query = select(Mapping).where(
                 and_(
-                    Mapping.student_id == student.id,
-                    Mapping.training_id == training.id,
-                    Mapping.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                    Mapping.student_id == student.student_id,  # GetCourse ID студента
+                    Mapping.training_id == training_gc_id_int,  # GetCourse ID тренинга
+                    Mapping.valid_from <= now_utc,
+                    Mapping.valid_to >= now_utc
                 )
             )
             mapping_result = await session.execute(mapping_query)
             mapping = mapping_result.scalars().first()
 
-            if mapping:
-                return mapping.mentor_id
+            if not mapping:
+                # убрать\закомментировать логирование после тестирования
+                # logger.debug(
+                #     f"[DEBUG] Mapping не найден для student.student_id={student.student_id}, "
+                #     f"training.training_id={training.training_id}"
+                # )
+                return None
 
-            return None
+            # убрать\закомментировать логирование после тестирования
+            # logger.debug(
+            #     f"[DEBUG] Найден mapping: id={mapping.id}, student_id={mapping.student_id}, "
+            #     f"training_id={mapping.training_id}, mentor_id={mapping.mentor_id}, "
+            #     f"valid_from={mapping.valid_from}, valid_to={mapping.valid_to}"
+            # )
+
+            # Находим ментора по его GetCourse mentor_id,
+            # чтобы вернуть внутренний mentors.id (как в webhook_processor и deadline_checker)
+            mentor_query = select(Mentor).where(
+                and_(
+                    Mentor.mentor_id == mapping.mentor_id,  # mapping.mentor_id - это GetCourse ID
+                    Mentor.valid_from <= now_utc,
+                    Mentor.valid_to >= now_utc,
+                )
+            )
+            mentor_result = await session.execute(mentor_query)
+            mentor = mentor_result.scalars().first()
+
+            if not mentor:
+                # убрать\закомментировать логирование после тестирования
+                # logger.debug(
+                #     f"[DEBUG] Ментор с GetCourse ID {mapping.mentor_id} не найден или неактуален"
+                # )
+                return None
+
+            # Возвращаем внутренний ID ментора (mentors.id), который нужен для notifications.mentor_id
+            return mentor.id
 
         except Exception as e:
             logger.error(f"Ошибка при поиске ментора: {e}", exc_info=True)
