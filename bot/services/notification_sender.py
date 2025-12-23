@@ -90,7 +90,7 @@ class NotificationSenderService:
                         # Обновляем статус
                         notification.status = 'sent'
                         notification.sent_at = datetime.now(pytz.UTC)
-                        notification.telegram_message_id = message_id
+                        notification.telegram_message_id = str(message_id)
                         sent_count += 1
 
                         logger.info(

@@ -5,6 +5,7 @@
 и создает уведомления для менторов
 """
 
+import hashlib
 import logging
 from datetime import datetime
 from typing import Optional
@@ -149,7 +150,8 @@ class WebhookProcessingService:
             session,
             mentor_id=mentor.id,
             notification_type='answerToLesson',
-            message=message
+            message=message,
+            webhook_event_id=webhook_event.id
         )
 
         logger.info(
@@ -311,7 +313,8 @@ class WebhookProcessingService:
         session: AsyncSession,
         mentor_id: int,
         notification_type: str,
-        message: str
+        message: str,
+        webhook_event_id: Optional[int] = None
     ):
         """
         Создание уведомления в таблице notifications
@@ -321,14 +324,24 @@ class WebhookProcessingService:
             mentor_id: ID ментора (BIGINT из таблицы mentors)
             notification_type: Тип уведомления
             message: Текст сообщения
+            webhook_event_id: ID вебхука-источника (опционально)
         """
         try:
+            # Вычисляем хеш сообщения для дедупликации
+            # Используем комбинацию полей, которые однозначно описывают событие
+            payload_for_hash = f"{mentor_id}|{notification_type}|{webhook_event_id}|{message}"
+            message_hash = hashlib.sha256(payload_for_hash.encode("utf-8")).hexdigest()
+
+            now_utc = datetime.now(pytz.UTC)
+
             notification = Notification(
                 mentor_id=mentor_id,
                 type=notification_type,
                 message=message,
                 status='pending',
-                created_at=datetime.now(pytz.UTC)
+                webhook_event_id=webhook_event_id,
+                message_hash=message_hash,
+                created_at=now_utc
             )
 
             session.add(notification)
