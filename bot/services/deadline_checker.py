@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.services.database import (
     get_session, Lesson, Training, Student, Mapping,
-    WebhookEvent, Notification
+    WebhookEvent, Notification, Mentor
 )
 from bot.services.notification_calculator import NotificationCalculationService
 
@@ -43,6 +43,13 @@ class DeadlineCheckService:
             async for session in get_session():
                 # 1. Получить текущее время в UTC
                 now_utc = datetime.now(pytz.UTC)
+                now_moscow = now_utc.astimezone(self.moscow_tz)
+
+                # убрать\закомментировать логирование после тестирования
+                # logger.info(
+                #     f"[DEBUG] Текущее время UTC: {now_utc}, МСК: {now_moscow}, "
+                #     f"DEADLINE_WARNING_HOURS: {self.config.deadline_warning_hours}"
+                # )
 
                 # 2. Получить уроки с приближающимися дедлайнами
                 approaching_lessons = await self.get_approaching_deadlines(
@@ -60,6 +67,14 @@ class DeadlineCheckService:
 
                 # 3. Обработать каждый урок
                 for lesson in approaching_lessons:
+                    # убрать\закомментировать логирование после тестирования
+                    # lesson_deadline_moscow = lesson.deadline_date.astimezone(self.moscow_tz) if lesson.deadline_date else None
+                    # logger.info(
+                    #     f"[DEBUG] Обработка урока: lesson_id={lesson.lesson_id}, "
+                    #     f"training_id={lesson.training_id}, "
+                    #     f"deadline UTC={lesson.deadline_date}, "
+                    #     f"deadline МСК={lesson_deadline_moscow}"
+                    # )
                     try:
                         # Получить студентов без ответов
                         students_without_answers = await self.get_students_without_answers(
@@ -67,7 +82,14 @@ class DeadlineCheckService:
                             lesson.lesson_id
                         )
 
+                        # убрать\закомментировать логирование после тестирования
+                        # logger.info(
+                        #     f"[DEBUG] Урок {lesson.lesson_id}: найдено студентов без ответов: {len(students_without_answers)}"
+                        # )
+
                         if not students_without_answers:
+                            # убрать\закомментировать логирование после тестирования
+                            # logger.info(f"[DEBUG] Урок {lesson.lesson_id}: нет студентов без ответов, пропускаем")
                             continue
 
                         # Сгруппировать студентов по наставникам
@@ -77,8 +99,18 @@ class DeadlineCheckService:
                             lesson.training_id
                         )
 
+                        # убрать\закомментировать логирование после тестирования
+                        # logger.info(
+                        #     f"[DEBUG] Урок {lesson.lesson_id}: студентов сгруппировано по {len(mentor_groups)} менторам"
+                        # )
+
                         # Создать уведомления для каждого ментора
                         for mentor_id, students in mentor_groups.items():
+                            # убрать\закомментировать логирование после тестирования
+                            # logger.info(
+                            #     f"[DEBUG] Урок {lesson.lesson_id}: ментор {mentor_id}, "
+                            #     f"студентов в группе: {len(students)}"
+                            # )
                             # Проверить дубликаты для каждого студента
                             filtered_students = []
                             for student in students:
@@ -101,8 +133,15 @@ class DeadlineCheckService:
 
                             # Создать уведомление если есть студенты
                             if filtered_students:
-                                # Получить training для названия
-                                training = await session.get(Training, lesson.training_id)
+                                # Получить training для названия по GetCourse ID
+                                # ВАЖНО: lesson.training_id - это GetCourse ID (строка), а не Training.id
+                                training_query = select(Training).where(
+                                    Training.training_id == str(lesson.training_id),
+                                    Training.valid_from <= now_utc,
+                                    Training.valid_to >= now_utc
+                                )
+                                training_result = await session.execute(training_query)
+                                training = training_result.scalars().first()
 
                                 message = self.notification_calculator.format_deadline_notification(
                                     training_title=training.title if training else lesson.training_id,
@@ -162,17 +201,65 @@ class DeadlineCheckService:
             # Вычисляем порог предупреждения
             warning_threshold = now_utc + timedelta(hours=self.config.deadline_warning_hours)
 
+            # убрать\закомментировать логирование после тестирования
+            # warning_threshold_moscow = warning_threshold.astimezone(self.moscow_tz)
+            # now_moscow = now_utc.astimezone(self.moscow_tz)
+            # logger.info(
+            #     f"[DEBUG] get_approaching_deadlines: now_utc={now_utc} (МСК: {now_moscow}), "
+            #     f"warning_threshold={warning_threshold} (МСК: {warning_threshold_moscow}), "
+            #     f"warning_hours={self.config.deadline_warning_hours}"
+            # )
+
+            # убрать\закомментировать логирование после тестирования
+            # Сначала получим уроки с дедлайнами с теми же условиями актуальности, что и в основном запросе
+            # ВАЖНО: используем интервальную проверку valid_from/valid_to, а не сравнение с '9999-12-31',
+            # т.к. TIMESTAMPTZ в БД хранится с часовым поясом и прямое сравнение с UTC-датой может не совпасть.
+            # all_lessons_query = select(Lesson).where(
+            #     and_(
+            #         Lesson.deadline_date.isnot(None),
+            #         Lesson.deadline_date > now_utc,
+            #         Lesson.deadline_date <= warning_threshold,
+            #         Lesson.valid_from <= now_utc,
+            #         Lesson.valid_to >= now_utc
+            #     )
+            # ).order_by(Lesson.deadline_date)
+            # all_lessons_result = await session.execute(all_lessons_query)
+            # all_lessons = all_lessons_result.scalars().all()
+            # logger.info(f"[DEBUG] Всего уроков с дедлайнами в БД: {len(all_lessons)}")
+            # for lesson in all_lessons:
+            #     lesson_deadline_moscow = lesson.deadline_date.astimezone(self.moscow_tz) if lesson.deadline_date else None
+            #     deadline_passed = lesson.deadline_date <= now_utc if lesson.deadline_date else None
+            #     deadline_in_range = (lesson.deadline_date > now_utc and lesson.deadline_date <= warning_threshold) if lesson.deadline_date else None
+            #     logger.info(
+            #         f"[DEBUG]   Урок {lesson.lesson_id}: deadline UTC={lesson.deadline_date}, "
+            #         f"МСК={lesson_deadline_moscow}, прошел={deadline_passed}, "
+            #         f"в диапазоне={deadline_in_range}"
+            #     )
+
             query = select(Lesson).where(
                 and_(
                     Lesson.deadline_date.isnot(None),
-                    Lesson.deadline_date > now_utc,  # Дедлайн еще не прошел
+                    Lesson.deadline_date > now_utc,           # Дедлайн еще не прошел
                     Lesson.deadline_date <= warning_threshold,  # Но приближается
-                    Lesson.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                    # ВАЖНО: актуальность записи урока по периодам valid_from/valid_to
+                    Lesson.valid_from <= now_utc,
+                    Lesson.valid_to >= now_utc
                 )
             ).order_by(Lesson.deadline_date)
 
             result = await session.execute(query)
-            return result.scalars().all()
+            lessons = result.scalars().all()
+
+            # убрать\закомментировать логирование после тестирования
+            # logger.info(f"[DEBUG] get_approaching_deadlines: найдено уроков после фильтрации: {len(lessons)}")
+            # for lesson in lessons:
+            #     lesson_deadline_moscow = lesson.deadline_date.astimezone(self.moscow_tz) if lesson.deadline_date else None
+            #     logger.info(
+            #         f"[DEBUG]   - Урок {lesson.lesson_id}: deadline UTC={lesson.deadline_date}, "
+            #         f"МСК={lesson_deadline_moscow}, training_id={lesson.training_id}"
+            #     )
+
+            return lessons
 
         except Exception as e:
             logger.error(f"Ошибка при получении приближающихся дедлайнов: {e}", exc_info=True)
@@ -194,11 +281,23 @@ class DeadlineCheckService:
             Список GetCourse ID студентов без ответов
         """
         try:
+            # Текущее время для проверки актуальности записей
+            now_utc = datetime.now(pytz.UTC)
+
             # Получаем всех студентов, которые ответили на этот урок
             # (из webhook_events где answer_status = 'new' или 'accepted')
+            # ВАЖНО: answer_lesson_id в БД имеет тип Integer, поэтому приводим строку к int
+            try:
+                lesson_id_int = int(lesson_getcourse_id)
+            except (ValueError, TypeError):
+                logger.error(
+                    f"Не удалось преобразовать lesson_getcourse_id '{lesson_getcourse_id}' в int"
+                )
+                return []
+
             query = select(WebhookEvent.user_id).where(
                 and_(
-                    WebhookEvent.answer_lesson_id == lesson_getcourse_id,
+                    WebhookEvent.answer_lesson_id == lesson_id_int,
                     WebhookEvent.answer_status.in_(['new', 'accepted'])
                 )
             ).distinct()
@@ -206,44 +305,86 @@ class DeadlineCheckService:
             result = await session.execute(query)
             students_with_answers = set(result.scalars().all())
 
+            # убрать\закомментировать логирование после тестирования
+            # logger.info(
+            #     f"[DEBUG] get_students_without_answers для урока {lesson_getcourse_id}: "
+            #     f"студентов с ответами: {len(students_with_answers)}"
+            # )
+
             # Получаем урок для определения training_id
             lesson_query = select(Lesson).where(
                 Lesson.lesson_id == lesson_getcourse_id,
-                Lesson.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                # ВАЖНО: проверяем актуальность записи по интервалу valid_from/valid_to
+                Lesson.valid_from <= now_utc,
+                Lesson.valid_to >= now_utc
             )
             lesson_result = await session.execute(lesson_query)
             lesson = lesson_result.scalars().first()
 
             if not lesson:
+                # убрать\закомментировать логирование после тестирования
+                # logger.warning(f"[DEBUG] Урок {lesson_getcourse_id} не найден в БД")
                 return []
 
-            # Получаем training
-            training_query = select(Training).where(
-                Training.training_id == lesson.training_id,
-                Training.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
-            )
-            training_result = await session.execute(training_query)
-            training = training_result.scalars().first()
-
-            if not training:
+            # Получаем всех студентов этого тренинга через mapping.
+            # ВАЖНО: в mapping.training_id хранится GetCourse ID тренинга (Integer),
+            # а в Lesson.training_id — строковый GetCourse ID, поэтому приводим к int.
+            try:
+                training_gc_id_int = int(lesson.training_id)
+            except (ValueError, TypeError):
+                logger.error(
+                    f"Не удалось преобразовать lesson.training_id '{lesson.training_id}' в int "
+                    f"для урока {lesson_getcourse_id}"
+                )
                 return []
 
-            # Получаем всех студентов этого тренинга через mapping
             mapping_query = select(Mapping).where(
                 and_(
-                    Mapping.training_id == training.id,
-                    Mapping.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                    Mapping.training_id == training_gc_id_int,
+                    Mapping.valid_from <= now_utc,
+                    Mapping.valid_to >= now_utc
                 )
             )
             mapping_result = await session.execute(mapping_query)
             mappings = mapping_result.scalars().all()
 
+            # убрать\закомментировать логирование после тестирования
+            # logger.info(
+            #     f"[DEBUG] get_students_without_answers для урока {lesson_getcourse_id}: "
+            #     f"всего mappings для тренинга {training_gc_id_int}: {len(mappings)}"
+            # )
+
             # Получаем GetCourse ID студентов
+            # ВАЖНО: mapping.student_id - это Student.student_id (GetCourse ID), а не Student.id
+            # Приводим к int, т.к. в БД Mapping.student_id - BigInteger, а Student.student_id - Integer
             students_without_answers = []
             for mapping in mappings:
-                student = await session.get(Student, mapping.student_id)
+                try:
+                    mapping_student_id_int = int(mapping.student_id)
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"Не удалось преобразовать mapping.student_id '{mapping.student_id}' в int"
+                    )
+                    continue
+
+                # Ищем студента по GetCourse ID, а не по внутреннему id
+                student_query = select(Student).where(
+                    Student.student_id == mapping_student_id_int,
+                    Student.valid_from <= now_utc,
+                    Student.valid_to >= now_utc
+                )
+                student_result = await session.execute(student_query)
+                student = student_result.scalars().first()
+
                 if student and student.student_id not in students_with_answers:
                     students_without_answers.append(student.student_id)
+
+            # убрать\закомментировать логирование после тестирования
+            # logger.info(
+            #     f"[DEBUG] get_students_without_answers для урока {lesson_getcourse_id}: "
+            #     f"студентов без ответов: {len(students_without_answers)} "
+            #     f"(из {len(mappings)} mappings в тренинге)"
+            # )
 
             return students_without_answers
 
@@ -269,12 +410,16 @@ class DeadlineCheckService:
             Словарь {mentor_id: [список студентов с данными]}
         """
         try:
+            # Текущее время для проверки актуальности записей
+            now_utc = datetime.now(pytz.UTC)
+
             mentor_groups = defaultdict(list)
 
-            # Получаем training
+            # Получаем training по GetCourse ID (строка)
             training_query = select(Training).where(
-                Training.training_id == training_getcourse_id,
-                Training.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                Training.training_id == str(training_getcourse_id),
+                Training.valid_from <= now_utc,
+                Training.valid_to >= now_utc
             )
             training_result = await session.execute(training_query)
             training = training_result.scalars().first()
@@ -282,12 +427,33 @@ class DeadlineCheckService:
             if not training:
                 return {}
 
+            # Приводим GetCourse ID тренинга к int для работы с mapping.training_id
+            try:
+                training_gc_id_int = int(training_getcourse_id)
+            except (ValueError, TypeError):
+                logger.error(
+                    f"Не удалось преобразовать training_getcourse_id '{training_getcourse_id}' в int "
+                    f"в group_students_by_mentor"
+                )
+                return {}
+
             # Для каждого студента находим его ментора
             for student_gc_id in student_getcourse_ids:
-                # Находим студента
+                # Приводим к int для надежности (Mapping.student_id - BigInteger)
+                try:
+                    student_gc_id_int = int(student_gc_id)
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"Не удалось преобразовать student_gc_id '{student_gc_id}' в int "
+                        f"в group_students_by_mentor"
+                    )
+                    continue
+
+                # Находим студента по его GetCourse ID
                 student_query = select(Student).where(
-                    Student.student_id == student_gc_id,
-                    Student.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                    Student.student_id == student_gc_id_int,
+                    Student.valid_from <= now_utc,
+                    Student.valid_to >= now_utc
                 )
                 student_result = await session.execute(student_query)
                 student = student_result.scalars().first()
@@ -295,12 +461,15 @@ class DeadlineCheckService:
                 if not student:
                     continue
 
-                # Находим mapping
+                # Находим mapping.
+                # В mapping.student_id хранится GetCourse ID студента,
+                # в mapping.training_id — GetCourse ID тренинга.
                 mapping_query = select(Mapping).where(
                     and_(
-                        Mapping.student_id == student.id,
-                        Mapping.training_id == training.id,
-                        Mapping.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                        Mapping.student_id == student_gc_id_int,
+                        Mapping.training_id == training_gc_id_int,
+                        Mapping.valid_from <= now_utc,
+                        Mapping.valid_to >= now_utc
                     )
                 )
                 mapping_result = await session.execute(mapping_query)
@@ -309,8 +478,23 @@ class DeadlineCheckService:
                 if not mapping:
                     continue
 
-                # Добавляем студента в группу его ментора
-                mentor_groups[mapping.mentor_id].append({
+                # Находим ментора по его GetCourse mentor_id,
+                # чтобы дальше использовать внутренний mentors.id в notifications
+                mentor_query = select(Mentor).where(
+                    and_(
+                        Mentor.mentor_id == mapping.mentor_id,
+                        Mentor.valid_from <= now_utc,
+                        Mentor.valid_to >= now_utc,
+                    )
+                )
+                mentor_result = await session.execute(mentor_query)
+                mentor = mentor_result.scalars().first()
+
+                if not mentor:
+                    continue
+
+                # Добавляем студента в группу его ментора (ключ — mentors.id)
+                mentor_groups[mentor.id].append({
                     'id': student.id,
                     'student_id': student.student_id,
                     'email': student.user_email,
