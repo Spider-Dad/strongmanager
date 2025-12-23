@@ -175,10 +175,14 @@ class WebhookProcessingService:
             Объект Mentor или None
         """
         try:
+            # Текущая дата в UTC для проверки актуальности записей
+            now_utc = datetime.now(pytz.UTC)
+
             # Находим студента по GetCourse ID
             student_query = select(Student).where(
                 Student.student_id == student_getcourse_id,
-                Student.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                Student.valid_from <= now_utc,
+                Student.valid_to >= now_utc,
             )
             student_result = await session.execute(student_query)
             student = student_result.scalars().first()
@@ -189,8 +193,9 @@ class WebhookProcessingService:
 
             # Находим тренинг по GetCourse ID
             training_query = select(Training).where(
-                Training.training_id == training_getcourse_id,
-                Training.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                Training.training_id == str(training_getcourse_id),
+                Training.valid_from <= now_utc,
+                Training.valid_to >= now_utc,
             )
             training_result = await session.execute(training_query)
             training = training_result.scalars().first()
@@ -199,12 +204,17 @@ class WebhookProcessingService:
                 logger.warning(f"Тренинг {training_getcourse_id} не найден")
                 return None
 
-            # Находим mapping
+            # Находим mapping.
+            # В таблице mapping хранятся именно GetCourse ID:
+            # - student_id  = Student.student_id
+            # - mentor_id   = Mentor.mentor_id
+            # - training_id = WebhookEvent.answer_training_id (GetCourse ID тренинга)
             mapping_query = select(Mapping).where(
                 and_(
-                    Mapping.student_id == student.id,
-                    Mapping.training_id == training.id,
-                    Mapping.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                    Mapping.student_id == student.student_id,
+                    Mapping.training_id == training_getcourse_id,
+                    Mapping.valid_from <= now_utc,
+                    Mapping.valid_to >= now_utc,
                 )
             )
             mapping_result = await session.execute(mapping_query)
@@ -217,11 +227,12 @@ class WebhookProcessingService:
                 )
                 return None
 
-            # Находим ментора
+            # Находим ментора по его GetCourse mentor_id
             mentor_query = select(Mentor).where(
                 and_(
-                    Mentor.id == mapping.mentor_id,
-                    Mentor.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                    Mentor.mentor_id == mapping.mentor_id,
+                    Mentor.valid_from <= now_utc,
+                    Mentor.valid_to >= now_utc,
                 )
             )
             mentor_result = await session.execute(mentor_query)
@@ -249,9 +260,13 @@ class WebhookProcessingService:
             Объект Lesson или None
         """
         try:
+            # Текущая дата в UTC для проверки актуальности записи
+            now_utc = datetime.now(pytz.UTC)
+
             query = select(Lesson).where(
-                Lesson.lesson_id == lesson_getcourse_id,
-                Lesson.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                Lesson.lesson_id == str(lesson_getcourse_id),
+                Lesson.valid_from <= now_utc,
+                Lesson.valid_to >= now_utc,
             )
             result = await session.execute(query)
             return result.scalars().first()
@@ -276,9 +291,13 @@ class WebhookProcessingService:
             Объект Training или None
         """
         try:
+            # Текущая дата в UTC для проверки актуальности записи
+            now_utc = datetime.now(pytz.UTC)
+
             query = select(Training).where(
-                Training.training_id == training_getcourse_id,
-                Training.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                Training.training_id == str(training_getcourse_id),
+                Training.valid_from <= now_utc,
+                Training.valid_to >= now_utc,
             )
             result = await session.execute(query)
             return result.scalars().first()

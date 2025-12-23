@@ -145,10 +145,14 @@ class NotificationSenderService:
             Объект Mentor или None
         """
         try:
+            # Текущая дата в UTC для проверки актуальности записи
+            now_utc = datetime.now(pytz.UTC)
+
             query = select(Mentor).where(
                 and_(
                     Mentor.id == mentor_id,
-                    Mentor.valid_to == datetime(9999, 12, 31, tzinfo=pytz.UTC)
+                    Mentor.valid_from <= now_utc,
+                    Mentor.valid_to >= now_utc,
                 )
             )
             result = await session.execute(query)
