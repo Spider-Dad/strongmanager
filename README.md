@@ -276,4 +276,3 @@ python main.py
 
 - **webhook_events** — вебхуки от GetCourse (через n8n)
 - **notifications** — уведомления для отправки (через Python сервисы)
-- Для корректной работы требуется, чтобы у наставника был указан Telegram ID в справочнике mentors
