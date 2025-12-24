@@ -500,23 +500,27 @@ async def _build_header_with_legend(session, training_id: Optional[int], lesson_
         )
         t = tr.scalars().first()
 
-        # ВАЖНО: Lesson.training_id хранит GetCourse ID тренинга (String), а не внутренний Training.id
-        # Получаем все уроки тренинга для определения статуса
-        lessons_res = await session.execute(
-            select(Lesson).where(
-                and_(
-                    Lesson.training_id == t.training_id,  # GetCourse ID тренинга
-                    Lesson.valid_from <= now_utc,
-                    Lesson.valid_to >= now_utc
+        if t:
+            # ВАЖНО: Lesson.training_id хранит GetCourse ID тренинга (String), а не внутренний Training.id
+            # Получаем все уроки тренинга для определения статуса
+            lessons_res = await session.execute(
+                select(Lesson).where(
+                    and_(
+                        Lesson.training_id == t.training_id,  # GetCourse ID тренинга
+                        Lesson.valid_from <= now_utc,
+                        Lesson.valid_to >= now_utc
+                    )
                 )
             )
-        )
-        training_lessons = lessons_res.scalars().all()
-        state = get_training_state(training_lessons, t)
-        emoji = get_status_emoji(state)
-        title_text = t.title if t and t.title else str(training_id)
-        training_info = f"{emoji}{title_text}"
-        tr_line = f"{bold('Тренинг')}: {escape_markdown_v2(training_info)}"
+            training_lessons = lessons_res.scalars().all()
+            state = get_training_state(training_lessons, t)
+            emoji = get_status_emoji(state)
+            title_text = t.title if t.title else str(training_id)
+            training_info = f"{emoji}{title_text}"
+            tr_line = f"{bold('Тренинг')}: {escape_markdown_v2(training_info)}"
+        else:
+            # Тренинг не найден или истек срок действия
+            tr_line = f"{bold('Тренинг')}: {escape_markdown_v2(str(training_id))}"
     if lesson_id is None:
         ls_line = f"{bold('Урок')}: {escape_markdown_v2('по всем активным 🟡 и завершенным 🟢 урокам.')}"
     else:
