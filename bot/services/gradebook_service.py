@@ -470,6 +470,23 @@ def _resolve_deadline(lesson: Lesson) -> Optional[datetime]:
     return lesson.deadline_date
 
 
+def _safe_int_lesson_id(lesson_id: str) -> Optional[int]:
+    """
+    Безопасно преобразует lesson_id (String) в int.
+
+    Args:
+        lesson_id: Строковый ID урока из БД
+
+    Returns:
+        Integer ID урока или None, если преобразование невозможно
+    """
+    try:
+        return int(lesson_id)
+    except (ValueError, TypeError):
+        logger.error(f"Не удалось преобразовать lesson_id '{lesson_id}' в int")
+        return None
+
+
 async def build_mentor_overview(
     session: AsyncSession,
     mentor_id: int,
@@ -556,7 +573,8 @@ async def build_mentor_overview(
     student_id_to_email = {sid: s.user_email for sid, s in students.items()}
 
     # ВАЖНО: Передаем GetCourse ID уроков (Integer), а не внутренние Lesson.id
-    lesson_getcourse_ids = [int(l.lesson_id) for l in lessons]
+    # Безопасное преобразование с обработкой ошибок для нечисловых lesson_id
+    lesson_getcourse_ids = [lid for lid in (_safe_int_lesson_id(l.lesson_id) for l in lessons) if lid is not None]
 
     # убрать\закомментировать логирование после тестирования
     # logger.debug(f"[DEBUG] build_mentor_overview: GetCourse ID уроков для поиска ответов: {lesson_getcourse_ids}")
@@ -575,7 +593,11 @@ async def build_mentor_overview(
         for lesson in lessons:
             deadline = _resolve_deadline(lesson)
             # ВАЖНО: Используем GetCourse ID урока для поиска в словаре earliest
-            lesson_getcourse_id = int(lesson.lesson_id)
+            # Безопасное преобразование с обработкой ошибок для нечисловых lesson_id
+            lesson_getcourse_id = _safe_int_lesson_id(lesson.lesson_id)
+            if lesson_getcourse_id is None:
+                logger.warning(f"Пропущен урок с некорректным lesson_id '{lesson.lesson_id}' (id={lesson.id})")
+                continue
             answer_date = earliest.get((sid, lesson_getcourse_id))
 
             # убрать\закомментировать логирование после тестирования
