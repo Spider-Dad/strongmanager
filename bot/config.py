@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from urllib.parse import quote_plus
 
 class Config:
     def __init__(self):
@@ -44,9 +45,15 @@ class Config:
         postgres_schema = os.getenv("POSTGRES_SCHEMA", "public")
 
         # Формируем URL для asyncpg
+        # Кодируем компоненты URL для безопасной обработки специальных символов
+        encoded_user = quote_plus(postgres_user)
+        encoded_password = quote_plus(postgres_password)
+        encoded_host = quote_plus(postgres_host)
+        encoded_db = quote_plus(postgres_db)
+
         self.db_url = (
-            f"postgresql+asyncpg://{postgres_user}:{postgres_password}"
-            f"@{postgres_host}:{postgres_port}/{postgres_db}"
+            f"postgresql+asyncpg://{encoded_user}:{encoded_password}"
+            f"@{encoded_host}:{postgres_port}/{encoded_db}"
         )
 
         # Параметры подключения для asyncpg
