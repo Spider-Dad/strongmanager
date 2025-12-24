@@ -91,7 +91,9 @@ class ReminderService:
                 for mentor_id, students in mentor_groups.items():
                     try:
                         # Сортировка по времени ответа
-                        students.sort(key=lambda s: s.get('webhook_date', datetime.min))
+                        # Используем UTC-aware datetime.min для консистентности с timezone-aware webhook_date
+                        min_utc = datetime.min.replace(tzinfo=pytz.UTC)
+                        students.sort(key=lambda s: s.get('webhook_date', min_utc))
 
                         # Формирование сообщения
                         message = self.notification_calculator.format_reminder_notification(
