@@ -19,7 +19,6 @@ from bot.middlewares import setup_middlewares
 from bot.services.database import setup_database
 from bot.utils.logger import setup_logger_with_alerts
 from bot.utils.alerts import AlertHandler
-from bot.services.sync_service import SyncService
 
 # Задержка для предотвращения проблем с дублирующимися экземплярами бота на сервере
 time.sleep(5)
@@ -30,7 +29,6 @@ load_dotenv()
 # Глобальные переменные для хранения обработчиков
 alert_handler: Optional[AlertHandler] = None
 db_log_handler = None
-sync_service: Optional[SyncService] = None
 logger = None
 
 # Кэш для предотвращения повторной обработки дублирующихся обновлений
@@ -43,7 +41,7 @@ async def on_startup(dp):
     logger.info("Бот запущен")
 
 async def main():
-    global alert_handler, db_log_handler, sync_service, logger
+    global alert_handler, db_log_handler, logger
 
     # Настройка логирования
     logger = logging.getLogger(__name__)
@@ -75,27 +73,52 @@ async def main():
         # Регистрация всех обработчиков
         register_all_handlers(dp, config)
 
-        # Инициализация сервиса синхронизации
-        sync_service = SyncService(config)
-
-        # Создание таблицы истории синхронизации если её нет
-        await sync_service.ensure_sync_table()
-
-        # Запуск автоматической синхронизации если настроена
-        await sync_service.start_auto_sync()
-
-        # Инициализация планировщика для проверки уведомлений
+        # Инициализация планировщика для периодических задач
         scheduler = AsyncIOScheduler()
 
-        # Импорт здесь для избежания циклических импортов
-        from bot.services.notifications import check_new_notifications
+        # Импорт новых сервисов
+        from bot.services.webhook_processor import WebhookProcessingService
+        from bot.services.deadline_checker import DeadlineCheckService
+        from bot.services.reminder_service import ReminderService
+        from bot.services.notification_sender import NotificationSenderService
 
-        # Добавление задачи проверки уведомлений
+        # Инициализация сервисов
+        webhook_processor = WebhookProcessingService(config)
+        deadline_checker = DeadlineCheckService(config)
+        reminder_service = ReminderService(config)
+        notification_sender = NotificationSenderService(config, bot)
+
+        # Задача 1: Обработка вебхуков (каждые 30 секунд)
         scheduler.add_job(
-            check_new_notifications,
+            webhook_processor.process_pending_webhooks,
             'interval',
-            seconds=config.polling_interval,
-            args=[bot, config]
+            seconds=config.webhook_processing_interval,
+            id='process_webhooks'
+        )
+
+        # Задача 2: Проверка дедлайнов (каждый час)
+        scheduler.add_job(
+            deadline_checker.check_deadlines,
+            'interval',
+            minutes=config.deadline_check_interval_minutes,
+            id='check_deadlines'
+        )
+
+        # Задача 3: Отправка уведомлений (каждые 15 секунд)
+        scheduler.add_job(
+            notification_sender.send_pending_notifications,
+            'interval',
+            seconds=config.notification_send_interval,
+            id='send_notifications'
+        )
+
+        # Задача 4: Напоминания о непроверенных ответах (раз в день в 12:00 MSK)
+        scheduler.add_job(
+            reminder_service.process_reminder_notifications,
+            'cron',
+            hour=config.reminder_trigger_hour,
+            timezone='Europe/Moscow',
+            id='process_reminders'
         )
 
         # Добавление задачи очистки старых логов
@@ -111,10 +134,6 @@ async def main():
         # Обработчик сигналов для корректного завершения
         async def on_shutdown(signal, frame):
             logger.info("Завершение работы бота...")
-
-            # Остановка автоматической синхронизации
-            if sync_service:
-                await sync_service.stop_auto_sync()
 
             # Остановка обработчика алертов
             if alert_handler:
@@ -245,8 +264,6 @@ async def main():
     except (KeyboardInterrupt, SystemExit):
         logger.info("Бот остановлен")
         # Остановка сервисов при завершении
-        if sync_service:
-            await sync_service.stop_auto_sync()
         if alert_handler:
             alert_handler.stop()
     except Exception as e:
@@ -256,8 +273,6 @@ async def main():
         # Закрываем все соединения при выходе
         try:
             # Остановка сервисов
-            if sync_service:
-                await sync_service.stop_auto_sync()
             if alert_handler:
                 alert_handler.stop()
 

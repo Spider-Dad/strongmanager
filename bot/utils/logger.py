@@ -7,8 +7,6 @@ from typing import Optional, List
 import asyncio
 from aiogram import Bot
 from sqlalchemy import delete
-from sqlalchemy.ext.asyncio import AsyncSession
-
 import bot.services.database as db
 
 class DatabaseHandler(logging.Handler):
@@ -148,9 +146,6 @@ class DailyRotatingFileHandler(logging.FileHandler):
         if current_date != self.current_date:
             self.close()
             self.current_date = current_date
-            current_filename = self.filename_pattern.format(
-                date=self.current_date.strftime('%Y%m%d')
-            )
             self._open()
         super().emit(record)
 

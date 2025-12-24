@@ -3,6 +3,7 @@ from aiogram import types
 from aiogram.dispatcher import Dispatcher
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from typing import Optional
+from sqlalchemy import select, and_
 
 from bot.services.database import get_session
 
@@ -10,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 from bot.services.gradebook_service import (
     build_mentor_overview,
-    build_admin_overview,
     STATUS_ON_TIME,
     STATUS_LATE,
     STATUS_NO_BEFORE_DEADLINE,
@@ -22,11 +22,8 @@ from bot.services.gradebook_service import (
 from bot.utils.markdown import escape_markdown_v2, bold, italic
 from bot.keyboards.gradebook import (
     kb_progress_filters,
-    kb_training_select,
-    kb_pagination,
     kb_filters_with_pagination,
     kb_training_select_with_status,
-    kb_lesson_select_with_status,
     _kb_lesson_select_with_pagination,
 )
 
@@ -131,24 +128,75 @@ async def cb_progress_router(call: CallbackQuery, config):
             await call.answer("Загрузка...")
 
             try:
+                # Текущее время для проверки актуальности записей
+                from datetime import datetime
+                import pytz
+                now_utc = datetime.now(pytz.UTC)
+
                 if is_admin:
-                    # Админ видит все тренинги
-                    tr_res = await session.execute(select(Training))
+                    # Админ видит все тренинги с проверкой актуальности
+                    tr_res = await session.execute(
+                        select(Training).where(
+                            and_(
+                                Training.valid_from <= now_utc,
+                                Training.valid_to >= now_utc
+                            )
+                        )
+                    )
                     trainings = tr_res.scalars().all()
                 else:
                     # Наставник видит только свои тренинги
-                    q = await session.execute(select(Mapping.training_id).where(Mapping.mentor_id == mentor.id))
-                    training_ids = sorted({row[0] for row in q.fetchall()})
-                    if not training_ids:
+                    # ВАЖНО: Mapping.mentor_id хранит GetCourse ID ментора (Mentor.mentor_id), а не внутренний Mentor.id
+                    # Mapping.training_id хранит GetCourse ID тренинга (BigInteger), но Training.training_id - String
+                    q = await session.execute(
+                        select(Mapping.training_id).where(
+                            and_(
+                                Mapping.mentor_id == mentor.mentor_id,  # GetCourse ID ментора
+                                Mapping.valid_from <= now_utc,
+                                Mapping.valid_to >= now_utc
+                            )
+                        )
+                    )
+                    training_getcourse_ids = sorted({str(row[0]) for row in q.fetchall()})  # Преобразуем в String
+
+                    # убрать\закомментировать логирование после тестирования
+                    import logging
+                    logger_debug = logging.getLogger(__name__)
+                    logger_debug.debug(f"[DEBUG] gradebook.py: найдено GetCourse ID тренингов для ментора {mentor.id}: {training_getcourse_ids}")
+
+                    if not training_getcourse_ids:
                         await call.answer("Нет тренингов", show_alert=True)
                         return
-                    tr_res = await session.execute(select(Training).where(Training.id.in_(training_ids)))
+
+                    # Ищем тренинги по GetCourse ID (Training.training_id - String)
+                    tr_res = await session.execute(
+                        select(Training).where(
+                            and_(
+                                Training.training_id.in_(training_getcourse_ids),
+                                Training.valid_from <= now_utc,
+                                Training.valid_to >= now_utc
+                            )
+                        )
+                    )
                     trainings = tr_res.scalars().all()
+
+                    # убрать\закомментировать логирование после тестирования
+                    logger_debug.debug(f"[DEBUG] gradebook.py: найдено тренингов для ментора: {len(trainings)}")
+
                 # добавляем статус тренинга и запрещаем not_started
                 options = []
                 from bot.services.gradebook_service import get_training_state
                 for t in trainings:
-                    lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == t.id))
+                    # ВАЖНО: Lesson.training_id хранит GetCourse ID тренинга (String), а не внутренний Training.id
+                    lessons_res = await session.execute(
+                        select(Lesson).where(
+                            and_(
+                                Lesson.training_id == t.training_id,  # GetCourse ID тренинга
+                                Lesson.valid_from <= now_utc,
+                                Lesson.valid_to >= now_utc
+                            )
+                        )
+                    )
                     lessons = lessons_res.scalars().all()
                     state = get_training_state(lessons, t)
                     state_emoji = {"active": "🟡", "completed": "🟢", "not_started": "🔴"}[state]
@@ -434,18 +482,45 @@ async def _build_header_with_legend(session, training_id: Optional[int], lesson_
     if training_id is None:
         tr_line = f"{bold('Тренинг')}: {escape_markdown_v2('по всем активным 🟡 и завершенным 🟢 тренингам.')}"
     else:
-        from sqlalchemy import select
+        from sqlalchemy import select, and_
         from bot.services.database import Training, Lesson
-        tr = await session.execute(select(Training).where(Training.id == training_id))
+        from datetime import datetime
+        import pytz
+        now_utc = datetime.now(pytz.UTC)
+
+        # Находим тренинг по внутреннему ID с проверкой актуальности
+        tr = await session.execute(
+            select(Training).where(
+                and_(
+                    Training.id == training_id,
+                    Training.valid_from <= now_utc,
+                    Training.valid_to >= now_utc
+                )
+            )
+        )
         t = tr.scalars().first()
-        # Получаем все уроки тренинга для определения статуса
-        lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == training_id))
-        training_lessons = lessons_res.scalars().all()
-        state = get_training_state(training_lessons, t)
-        emoji = get_status_emoji(state)
-        title_text = t.title if t and t.title else str(training_id)
-        training_info = f"{emoji}{title_text}"
-        tr_line = f"{bold('Тренинг')}: {escape_markdown_v2(training_info)}"
+
+        if t:
+            # ВАЖНО: Lesson.training_id хранит GetCourse ID тренинга (String), а не внутренний Training.id
+            # Получаем все уроки тренинга для определения статуса
+            lessons_res = await session.execute(
+                select(Lesson).where(
+                    and_(
+                        Lesson.training_id == t.training_id,  # GetCourse ID тренинга
+                        Lesson.valid_from <= now_utc,
+                        Lesson.valid_to >= now_utc
+                    )
+                )
+            )
+            training_lessons = lessons_res.scalars().all()
+            state = get_training_state(training_lessons, t)
+            emoji = get_status_emoji(state)
+            title_text = t.title if t.title else str(training_id)
+            training_info = f"{emoji}{title_text}"
+            tr_line = f"{bold('Тренинг')}: {escape_markdown_v2(training_info)}"
+        else:
+            # Тренинг не найден или истек срок действия
+            tr_line = f"{bold('Тренинг')}: {escape_markdown_v2(str(training_id))}"
     if lesson_id is None:
         ls_line = f"{bold('Урок')}: {escape_markdown_v2('по всем активным 🟡 и завершенным 🟢 урокам.')}"
     else:
@@ -456,7 +531,8 @@ async def _build_header_with_legend(session, training_id: Optional[int], lesson_
         if l:
             state = get_lesson_state(l)
             emoji = get_status_emoji(state)
-            title_text = l.title if l.title else str(lesson_id)
+            # ВАЖНО: В модели Lesson поле называется lesson_title, а не title
+            title_text = l.lesson_title if l.lesson_title else str(lesson_id)
             lesson_info = f"{emoji}{title_text}"
             ls_line = f"{bold('Урок')}: {escape_markdown_v2(lesson_info)}"
         else:
@@ -480,12 +556,41 @@ async def _build_header_with_legend(session, training_id: Optional[int], lesson_
 
 async def _render_lessons_list(message: types.Message, session, training_id: int, page: int, *, edit: bool = False):
     """Рендерит список уроков с пагинацией."""
-    from sqlalchemy import select
-    from bot.services.database import Lesson
+    from sqlalchemy import select, and_
+    from bot.services.database import Lesson, Training
     from bot.services.gradebook_service import get_lesson_state, get_status_emoji
+    from datetime import datetime
+    import pytz
+    now_utc = datetime.now(pytz.UTC)
 
     try:
-        lessons_res = await session.execute(select(Lesson).where(Lesson.training_id == training_id))
+        # ВАЖНО: training_id - это внутренний ID тренинга (Training.id)
+        # Lesson.training_id хранит GetCourse ID тренинга (String), поэтому нужно сначала найти тренинг
+        training_query = await session.execute(
+            select(Training).where(
+                and_(
+                    Training.id == training_id,
+                    Training.valid_from <= now_utc,
+                    Training.valid_to >= now_utc
+                )
+            )
+        )
+        training = training_query.scalars().first()
+
+        if not training:
+            await message.edit_text("Тренинг не найден или неактуален")
+            return
+
+        # Ищем уроки по GetCourse ID тренинга с проверкой актуальности
+        lessons_res = await session.execute(
+            select(Lesson).where(
+                and_(
+                    Lesson.training_id == training.training_id,  # GetCourse ID тренинга
+                    Lesson.valid_from <= now_utc,
+                    Lesson.valid_to >= now_utc
+                )
+            )
+        )
         lessons = lessons_res.scalars().all()
         if not lessons:
             await message.edit_text("Нет уроков в данном тренинге")
@@ -499,7 +604,8 @@ async def _render_lessons_list(message: types.Message, session, training_id: int
             allowed = state != "not_started"
             # Добавляем номер урока, если есть
             lesson_num = f"№ {l.lesson_number}. " if l.lesson_number is not None else ""
-            lesson_title = l.title or f"Lesson {l.id}"
+            # ВАЖНО: В модели Lesson поле называется lesson_title, а не title
+            lesson_title = l.lesson_title or f"Lesson {l.id}"
             title = f"{state_emoji} {lesson_num}{lesson_title}"
             # Для сортировки: активный урок (priority=0), остальные по номеру урока
             priority = 0 if state == "active" else 1
@@ -627,9 +733,21 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
 
 
 async def _render_admin_list(message: types.Message, session, training_id: Optional[int], lesson_id: Optional[int], page: int, *, edit: bool = False):
-    from sqlalchemy import select
+    from sqlalchemy import select, and_
     from bot.services.database import Mentor
-    mentors_res = await session.execute(select(Mentor))
+    from datetime import datetime
+    import pytz
+    now_utc = datetime.now(pytz.UTC)
+
+    # Все наставники с проверкой актуальности
+    mentors_res = await session.execute(
+        select(Mentor).where(
+            and_(
+                Mentor.valid_from <= now_utc,
+                Mentor.valid_to >= now_utc
+            )
+        )
+    )
     mentors = mentors_res.scalars().all()
 
     # Показываем индикатор загрузки для пользователя

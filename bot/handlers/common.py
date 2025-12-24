@@ -1,10 +1,8 @@
 import logging
 from aiogram import Dispatcher, types
 from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
-
 from bot.handlers.auth import Registration, check_auth
-from bot.utils.markdown import bold, italic, escape_markdown_v2
+from bot.utils.markdown import bold, escape_markdown_v2
 from bot.keyboards.main_menu import kb_main_menu_admin, kb_main_menu_mentor, kb_back_to_main
 from bot.services.database import get_session
 
@@ -54,11 +52,6 @@ def build_about_admin_text() -> str:
 		escape_markdown_v2("• Приближающиеся дедлайны по ответам на задания"),
 		"",
 		bold("Администрирование:"),
-		"",
-		escape_markdown_v2("/sync - Синхронизация БД с Google Sheets:"),
-		escape_markdown_v2("• Ручная синхронизация данных"),
-		escape_markdown_v2("• Просмотр статуса синхронизации"),
-		escape_markdown_v2("• Текущие настройки автосинхронизации"),
 		"",
 		escape_markdown_v2("/alerts - Статус по ошибкам бота:"),
 		escape_markdown_v2("• Последние ошибки бота с типом CRITICAL, ERROR"),
@@ -194,11 +187,6 @@ async def cmd_about(message: types.Message, config):
             "",
             bold("Администрирование:"),
             "",
-            escape_markdown_v2("/sync - Синхронизация БД с Google Sheets:"),
-            escape_markdown_v2("• Ручная синхронизация данных"),
-            escape_markdown_v2("• Просмотр статуса синхронизации"),
-            escape_markdown_v2("• Текущие настройки автосинхронизации"),
-            "",
             escape_markdown_v2("/alerts - Статус по ошибкам бота:"),
             escape_markdown_v2("• Последние ошибки бота с типом CRITICAL, ERROR"),
             escape_markdown_v2("• Количество ошибок бота по модулям за последние сутки с типом CRITICAL, ERROR, WARNING"),
@@ -311,7 +299,7 @@ def register_common_handlers(dp: Dispatcher, config):
     dp.register_message_handler(
         lambda msg: handle_admin_commands_for_non_admins(msg, config),
         lambda msg: msg.from_user.id not in config.admin_ids,
-        commands=["alerts", "sync"],
+        commands=["alerts"],
         state="*"
     )
 
@@ -414,14 +402,6 @@ def register_common_handlers(dp: Dispatcher, config):
                 logger = logging.getLogger(__name__)
                 logger.error(f"Ошибка при рендеринге прогресса: {e}")
                 await callback.message.edit_text("❌ Произошла ошибка при загрузке данных — попробуйте еще раз")
-            return
-        if data == "mm:sync":
-            if user_id in config.admin_ids:
-                from bot.handlers.admin import callback_sync_menu
-                await callback_sync_menu(callback)
-                await callback.answer()
-            else:
-                await callback.answer("Доступно только администраторам", show_alert=True)
             return
         if data == "mm:alerts":
             if user_id in config.admin_ids:

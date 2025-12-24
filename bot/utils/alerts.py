@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from aiogram import Bot
 from aiogram.utils.exceptions import TelegramAPIError
-import traceback
 
 
 class AlertHandler(logging.Handler):
@@ -84,7 +83,7 @@ class AlertHandler(logging.Handler):
                 pass
 
     async def _send_alert(self, level: str, logger_name: str, message: str,
-                         timestamp: datetime, traceback: Optional[str] = None):
+                         timestamp: datetime, traceback_text: Optional[str] = None):
         """Отправка алерта администраторам"""
         # Форматирование сообщения
         alert_text = f"""
@@ -99,8 +98,8 @@ class AlertHandler(logging.Handler):
 ```
 """
 
-        if traceback:
-            alert_text += f"\n📋 *Traceback:*\n```\n{traceback[:2000]}\n```"
+        if traceback_text:
+            alert_text += f"\n📋 *Traceback:*\n```\n{traceback_text[:2000]}\n```"
 
         # Отправка сообщения всем администраторам
         for admin_id in self.admin_ids:

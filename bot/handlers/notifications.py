@@ -1,5 +1,5 @@
 import logging
-from aiogram import Dispatcher, types
+from aiogram import Dispatcher
 
 logger = logging.getLogger(__name__)
 
