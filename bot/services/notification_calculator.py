@@ -91,8 +91,8 @@ class NotificationCalculationService:
         student_name: str,
         student_email: str,
         training_title: str,
-        module_number: int,
-        lesson_title: str,
+        module_number: Optional[int],
+        lesson_title: Optional[str],
         user_id: int
     ) -> str:
         """
@@ -102,11 +102,15 @@ class NotificationCalculationService:
         """
         answer_student_url = f"https://strongmanager.ru/teach/control/stat/userComments/id/{user_id}"
 
+        # Обработка None значений с fallback
+        module_display = str(module_number) if module_number is not None else "Не указано"
+        lesson_display = lesson_title if lesson_title is not None else "Не указано"
+
         message = (
             "🔔 *Новый ответ на урок!*\n\n"
             f"📚 *Тренинг:* {training_title}\n"
-            f"📖 *Модуль:* {module_number}\n"
-            f"📝 *Урок:* {lesson_title}\n\n"
+            f"📖 *Модуль:* {module_display}\n"
+            f"📝 *Урок:* {lesson_display}\n\n"
             "✅ *Пожалуйста, оставь обратную связь в течение 3 дней, поставь напоминание!*\n\n"
             f"👤 *Студент:* {student_name} ({student_email})\n"
             f"➡️ [*Перейти к ответам студента*]({answer_student_url})"
@@ -117,8 +121,8 @@ class NotificationCalculationService:
     def format_deadline_notification(
         self,
         training_title: str,
-        module_number: int,
-        lesson_title: str,
+        module_number: Optional[int],
+        lesson_title: Optional[str],
         deadline_date: datetime,
         students: List[Dict[str, str]]
     ) -> str:
@@ -129,8 +133,8 @@ class NotificationCalculationService:
 
         Args:
             training_title: Название тренинга
-            module_number: Номер модуля
-            lesson_title: Название урока
+            module_number: Номер модуля (может быть None)
+            lesson_title: Название урока (может быть None)
             deadline_date: Дата дедлайна (в UTC)
             students: Список студентов без ответов
         """
@@ -138,11 +142,15 @@ class NotificationCalculationService:
         deadline_moscow = deadline_date.astimezone(self.moscow_tz)
         deadline_str = deadline_moscow.strftime('%d-%m-%Y %H:%M')
 
+        # Обработка None значений с fallback
+        module_display = str(module_number) if module_number is not None else "Не указано"
+        lesson_display = lesson_title if lesson_title is not None else "Не указано"
+
         message = (
             f"⏰ *Срок ответа студента {deadline_str} (МСК)*\n\n"
             f"📚 *Тренинг:* {training_title}\n"
-            f"📖 *Модуль:* {module_number}\n"
-            f"📝 *Урок:* {lesson_title}\n\n"
+            f"📖 *Модуль:* {module_display}\n"
+            f"📝 *Урок:* {lesson_display}\n\n"
             "✅ *Пожалуйста, свяжись со студентом и помоги ему, если есть сложности:*\n\n"
         )
 
