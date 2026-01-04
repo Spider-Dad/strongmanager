@@ -53,15 +53,6 @@ data/
 *.xls
 *.csv
 *.test
-test_alerts.py
-check_admin.py
-test_formatting.py
-test_user_roles.py
-test_sync.py
-test_admin_commands.py
-test_bot_fix.py
-test_gs_error_handling.py
-test_logging_system.py
 tests/
 
 # Специфичные файлы операционной системы
@@ -69,12 +60,8 @@ tests/
 Thumbs.db
 desktop.ini
 
-# Google Cloud credentials
-*credentials*.json
-*service-account*.json
-google_*.json
-gcp_*.json
-central-insight-*.json
+# SpecStory artifacts
+.specstory/
 
-# Устаревшие файлы
-import_gsheets_to_sqlite.py
+# Cursor indexing ignore file
+.cursorindexingignore
