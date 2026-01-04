@@ -10,7 +10,7 @@
 import logging
 import hashlib
 from typing import Optional, List, Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytz
 from sqlalchemy import select
@@ -89,31 +89,51 @@ class NotificationCalculationService:
     def format_answer_notification(
         self,
         student_name: str,
-        student_email: str,
-        training_title: str,
-        module_number: Optional[int],
+        module_title: Optional[str],
         lesson_title: Optional[str],
+        event_date: datetime,
         user_id: int
     ) -> str:
         """
         Форматирование сообщения о новом ответе на урок
-
-        Соответствует формату из lessonHandlers.gs:81-92
+        Args:
+            student_name: Имя студента
+            module_title: Название модуля (из таблицы lessons)
+            lesson_title: Название урока (из таблицы lessons)
+            event_date: Дата события из webhook_events
+            user_id: ID пользователя для формирования ссылки
         """
         answer_student_url = f"https://strongmanager.ru/teach/control/stat/userComments/id/{user_id}"
 
         # Обработка None значений с fallback
-        module_display = str(module_number) if module_number is not None else "Не указано"
+        module_display = module_title if module_title is not None else "Не указано"
         lesson_display = lesson_title if lesson_title is not None else "Не указано"
+
+        # Расчет дедлайна: event_date + 72 часа, округление до часа в меньшую сторону
+        # Сначала убеждаемся, что event_date имеет timezone
+        if event_date.tzinfo is None:
+            event_date = pytz.UTC.localize(event_date)
+
+        # Добавляем 72 часа
+        from datetime import timedelta
+        deadline_utc = event_date + timedelta(hours=72)
+
+        # Округляем до часа в меньшую сторону (обнуляем минуты, секунды, микросекунды)
+        deadline_utc = deadline_utc.replace(minute=0, second=0, microsecond=0)
+
+        # Конвертируем в московское время
+        deadline_moscow = deadline_utc.astimezone(self.moscow_tz)
+
+        # Форматируем: DD.MM.YYYY HH-00 (МСК)
+        deadline_str = deadline_moscow.strftime('%d.%m.%Y %H-00 (МСК)')
 
         message = (
             "🔔 *Новый ответ на урок!*\n\n"
-            f"📚 *Тренинг:* {training_title}\n"
-            f"📖 *Модуль:* {module_display}\n"
-            f"📝 *Урок:* {lesson_display}\n\n"
-            "✅ *Пожалуйста, оставь обратную связь в течение 3 дней, поставь напоминание!*\n\n"
-            f"👤 *Студент:* {student_name} ({student_email})\n"
-            f"➡️ [*Перейти к ответам студента*]({answer_student_url})"
+            f"{module_display}\n"
+            f"{lesson_display}\n\n"
+            f"*Пожалуйста, оставь обратную связь до {deadline_str}*\n\n"
+            f"👤 Студент: {student_name}\n"
+            f"➡️ [Перейти к ответам студента]({answer_student_url})"
         )
 
         return message
