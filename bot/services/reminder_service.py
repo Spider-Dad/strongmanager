@@ -39,6 +39,11 @@ class ReminderService:
         Args:
             analysis_date: Дата для анализа (по умолчанию 2 дня назад)
         """
+        # Проверка флага включения/выключения напоминаний
+        if not self.config.reminder_enabled:
+            logger.info("Обработка напоминаний отключена (REMINDER_ENABLED=false)")
+            return
+
         try:
             # 1. Определить дату анализа
             if not analysis_date:
