@@ -140,8 +140,7 @@ class NotificationCalculationService:
 
     def format_deadline_notification(
         self,
-        training_title: str,
-        module_number: Optional[int],
+        module_title: Optional[str],
         lesson_title: Optional[str],
         deadline_date: datetime,
         students: List[Dict[str, str]]
@@ -149,11 +148,8 @@ class NotificationCalculationService:
         """
         Форматирование сообщения о приближающемся дедлайне
 
-        Соответствует формату из deadlineHandlers.gs:152-163
-
         Args:
-            training_title: Название тренинга
-            module_number: Номер модуля (может быть None)
+            module_title: Название модуля (может быть None)
             lesson_title: Название урока (может быть None)
             deadline_date: Дата дедлайна (в UTC)
             students: Список студентов без ответов
@@ -163,23 +159,21 @@ class NotificationCalculationService:
         deadline_str = deadline_moscow.strftime('%d-%m-%Y %H:%M')
 
         # Обработка None значений с fallback
-        module_display = str(module_number) if module_number is not None else "Не указано"
+        module_display = module_title if module_title is not None else "Не указано"
         lesson_display = lesson_title if lesson_title is not None else "Не указано"
 
         message = (
-            f"⏰ *Срок ответа студента {deadline_str} (МСК)*\n\n"
-            f"📚 *Тренинг:* {training_title}\n"
-            f"📖 *Модуль:* {module_display}\n"
-            f"📝 *Урок:* {lesson_display}\n\n"
-            "✅ *Пожалуйста, свяжись со студентом и помоги ему, если есть сложности:*\n\n"
+            f"⏰ *Нет ответа на урок. Дедлайн {deadline_str} (МСК)*\n\n"
+            f"{module_display}\n"
+            f"{lesson_display}\n\n"
+            "*Пожалуйста, свяжись со студентом и помоги ему, если есть сложности:*\n\n"
         )
 
         # Добавляем список студентов
         for student in students:
             first_name = student.get('first_name', '')
             last_name = student.get('last_name', '')
-            email = student.get('email', '')
-            message += f"👤 {first_name} {last_name} ({email})\n"
+            message += f"👤 {first_name} {last_name}\n"
 
         return message
 
