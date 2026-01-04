@@ -138,10 +138,9 @@ class WebhookProcessingService:
 
         message = self.notification_calculator.format_answer_notification(
             student_name=student_name,
-            student_email=webhook_event.user_email,
-            training_title=training.title,
-            module_number=lesson.module_number,
+            module_title=lesson.module_title,
             lesson_title=lesson.lesson_title,
+            event_date=webhook_event.event_date,
             user_id=webhook_event.user_id
         )
 

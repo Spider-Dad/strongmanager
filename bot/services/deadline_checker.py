@@ -133,19 +133,8 @@ class DeadlineCheckService:
 
                             # Создать уведомление если есть студенты
                             if filtered_students:
-                                # Получить training для названия по GetCourse ID
-                                # ВАЖНО: lesson.training_id - это GetCourse ID (строка), а не Training.id
-                                training_query = select(Training).where(
-                                    Training.training_id == str(lesson.training_id),
-                                    Training.valid_from <= now_utc,
-                                    Training.valid_to >= now_utc
-                                )
-                                training_result = await session.execute(training_query)
-                                training = training_result.scalars().first()
-
                                 message = self.notification_calculator.format_deadline_notification(
-                                    training_title=training.title if training else lesson.training_id,
-                                    module_number=lesson.module_number,
+                                    module_title=lesson.module_title,
                                     lesson_title=lesson.lesson_title,
                                     deadline_date=lesson.deadline_date,
                                     students=filtered_students
