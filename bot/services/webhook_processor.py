@@ -140,7 +140,7 @@ class WebhookProcessingService:
             student_name=student_name,
             module_title=lesson.module_title,
             lesson_title=lesson.lesson_title,
-            event_date=webhook_event.created_at,
+            event_date=webhook_event.event_date,
             user_id=webhook_event.user_id
         )
 
