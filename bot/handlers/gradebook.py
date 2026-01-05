@@ -15,36 +15,31 @@ from bot.services.gradebook_service import (
     STATUS_LATE,
     STATUS_NO_BEFORE_DEADLINE,
     STATUS_NO_AFTER_DEADLINE,
-    STATUS_HAS_ANSWER,
-    STATUS_NO_ANSWER,
-    simplify_status,
     get_status_emoji,
+    get_training_state,
     get_lesson_state,
 )
 from bot.utils.markdown import escape_markdown_v2, bold, italic
 from bot.keyboards.gradebook import (
     kb_progress_filters,
     kb_filters_with_pagination,
+    kb_training_select_with_status,
     _kb_lesson_select_with_pagination,
 )
 
 
-def _simplify_counters(counters: dict) -> dict:
-    """
-    Преобразует детальные счетчики статусов в упрощенный формат.
-
-    Args:
-        counters: Словарь с детальными статусами {STATUS_ON_TIME: N, STATUS_LATE: M, ...}
-
-    Returns:
-        Словарь с упрощенными статусами {STATUS_HAS_ANSWER: X, STATUS_NO_ANSWER: Y}
-    """
-    has_answer = counters.get(STATUS_ON_TIME, 0) + counters.get(STATUS_LATE, 0)
-    no_answer = counters.get(STATUS_NO_BEFORE_DEADLINE, 0) + counters.get(STATUS_NO_AFTER_DEADLINE, 0)
-    return {
-        STATUS_HAS_ANSWER: has_answer,
-        STATUS_NO_ANSWER: no_answer,
-    }
+def _format_counts(counts: dict) -> str:
+    v_on = counts.get(STATUS_ON_TIME, 0)
+    v_late = counts.get(STATUS_LATE, 0)
+    v_nb = counts.get(STATUS_NO_BEFORE_DEADLINE, 0)
+    v_na = counts.get(STATUS_NO_AFTER_DEADLINE, 0)
+    lines = [
+        escape_markdown_v2(f"✅ Ответ вовремя: {v_on}"),
+        escape_markdown_v2(f"⏰ Ответ с опозданием: {v_late}"),
+        escape_markdown_v2(f"⌛ Ответ вовремя: {v_nb}"),
+        escape_markdown_v2(f"❌ Ответа нет: {v_na}"),
+    ]
+    return "\n".join(lines)
 
 
 async def cmd_progress(message: types.Message, config):
@@ -77,10 +72,35 @@ async def cmd_progress_admin(message: types.Message, config):
         await _render_admin_list(message, session, training_id=None, lesson_id=None, page=1)
 
 
-# Функции _kb_progress_filters_with_tr и _kb_lesson_select удалены - больше не используются
+def _kb_progress_filters_with_tr(training_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("Сменить тренинг", callback_data="gb:filter:training"),
+        InlineKeyboardButton("Фильтр: урок", callback_data=f"gb:filter:lesson:tr:{training_id}"),
+    )
+    kb.add(
+        InlineKeyboardButton("Статус: вовремя", callback_data=f"gb:status:on_time:tr:{training_id}"),
+        InlineKeyboardButton("Статус: не вовремя", callback_data=f"gb:status:not_on_time:tr:{training_id}"),
+    )
+    kb.add(InlineKeyboardButton("Сбросить фильтры", callback_data="gb:back"))
+    return kb
 
 
-# Функция _format_summary_text больше не используется
+def _kb_lesson_select(options: list[tuple[int, str]], training_id: int, has_more: bool = False) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup(row_width=1)
+    for lesson_id, title in options:
+        title_short = title if len(title) <= 48 else title[:45] + "…"
+        kb.add(InlineKeyboardButton(f"📗 {title_short}", callback_data=f"gb:set:lesson:{lesson_id}:tr:{training_id}"))
+    if has_more:
+        kb.add(InlineKeyboardButton("Показаны первые 10", callback_data="gb:nop"))
+    kb.add(InlineKeyboardButton("← Назад", callback_data="gb:back"))
+    return kb
+
+
+def _format_summary_text(total: int, counts: dict, header: str) -> str:
+    counts_text = _format_counts(counts)
+    total_line = escape_markdown_v2(f"Всего студентов: {total}")
+    return f"{header}\n\n{total_line}\n\n{counts_text}"
 
 
 async def cb_progress_router(call: CallbackQuery, config):
@@ -102,7 +122,93 @@ async def cb_progress_router(call: CallbackQuery, config):
                 await call.answer("Нет доступа", show_alert=True)
                 return
 
-        # Фильтр по тренингам убран - больше не используется
+        # Фильтр: выбор тренинга
+        if data == "gb:filter:training":
+            # Немедленно отвечаем на callback query
+            await call.answer("Загрузка...")
+
+            try:
+                # Текущее время для проверки актуальности записей
+                from datetime import datetime
+                import pytz
+                now_utc = datetime.now(pytz.UTC)
+
+                if is_admin:
+                    # Админ видит все тренинги с проверкой актуальности
+                    tr_res = await session.execute(
+                        select(Training).where(
+                            and_(
+                                Training.valid_from <= now_utc,
+                                Training.valid_to >= now_utc
+                            )
+                        )
+                    )
+                    trainings = tr_res.scalars().all()
+                else:
+                    # Наставник видит только свои тренинги
+                    # ВАЖНО: Mapping.mentor_id хранит GetCourse ID ментора (Mentor.mentor_id), а не внутренний Mentor.id
+                    # Mapping.training_id хранит GetCourse ID тренинга (BigInteger), но Training.training_id - String
+                    q = await session.execute(
+                        select(Mapping.training_id).where(
+                            and_(
+                                Mapping.mentor_id == mentor.mentor_id,  # GetCourse ID ментора
+                                Mapping.valid_from <= now_utc,
+                                Mapping.valid_to >= now_utc
+                            )
+                        )
+                    )
+                    training_getcourse_ids = sorted({str(row[0]) for row in q.fetchall()})  # Преобразуем в String
+
+                    # убрать\закомментировать логирование после тестирования
+                    import logging
+                    logger_debug = logging.getLogger(__name__)
+                    logger_debug.debug(f"[DEBUG] gradebook.py: найдено GetCourse ID тренингов для ментора {mentor.id}: {training_getcourse_ids}")
+
+                    if not training_getcourse_ids:
+                        await call.answer("Нет тренингов", show_alert=True)
+                        return
+
+                    # Ищем тренинги по GetCourse ID (Training.training_id - String)
+                    tr_res = await session.execute(
+                        select(Training).where(
+                            and_(
+                                Training.training_id.in_(training_getcourse_ids),
+                                Training.valid_from <= now_utc,
+                                Training.valid_to >= now_utc
+                            )
+                        )
+                    )
+                    trainings = tr_res.scalars().all()
+
+                    # убрать\закомментировать логирование после тестирования
+                    logger_debug.debug(f"[DEBUG] gradebook.py: найдено тренингов для ментора: {len(trainings)}")
+
+                # добавляем статус тренинга и запрещаем not_started
+                options = []
+                from bot.services.gradebook_service import get_training_state
+                for t in trainings:
+                    # ВАЖНО: Lesson.training_id хранит GetCourse ID тренинга (String), а не внутренний Training.id
+                    lessons_res = await session.execute(
+                        select(Lesson).where(
+                            and_(
+                                Lesson.training_id == t.training_id,  # GetCourse ID тренинга
+                                Lesson.valid_from <= now_utc,
+                                Lesson.valid_to >= now_utc
+                            )
+                        )
+                    )
+                    lessons = lessons_res.scalars().all()
+                    state = get_training_state(lessons, t)
+                    state_emoji = {"active": "🟡", "completed": "🟢", "not_started": "🔴"}[state]
+                    allowed = state != "not_started"
+                    title_text = t.title or f"Training {t.id}"
+                    options.append((t.id, f"{state_emoji} {title_text}", allowed))
+                options = options[:10]
+                await call.message.edit_reply_markup(reply_markup=kb_training_select_with_status(options, has_more=len(trainings) > 10))
+            except Exception as e:
+                logger.error(f"Ошибка при загрузке тренингов: {e}")
+                await call.message.edit_text("❌ Произошла ошибка при загрузке тренингов — попробуйте еще раз")
+            return
 
         # Показ списка студентов (детализация): gb:list:students [опц. фильтры + пагинация]
         if data.startswith("gb:list:students") or data.startswith("gb:page:students"):
@@ -133,20 +239,20 @@ async def cb_progress_router(call: CallbackQuery, config):
             try:
                 summary = await build_mentor_overview(session, mentor_id=mentor.id, training_id=training_id, lesson_id=lesson_id)
 
-                # Счётчики по студентам: подсчёт статусов по items с преобразованием в упрощенный формат
+                # Счётчики по студентам: подсчёт статусов по items
                 per_student = {}
                 for it in summary.get("items", []):
                     sid = it.get("student_id") if isinstance(it, dict) else it.student_id
                     st = it.get("status") if isinstance(it, dict) else it.status
-                    simplified_status = simplify_status(st)
-                    if simplified_status is None:
-                        continue  # Пропускаем STATUS_OPTIONAL и другие
                     if sid not in per_student:
                         per_student[sid] = {
-                            STATUS_HAS_ANSWER: 0,
-                            STATUS_NO_ANSWER: 0,
+                            STATUS_ON_TIME: 0,
+                            STATUS_LATE: 0,
+                            STATUS_NO_BEFORE_DEADLINE: 0,
+                            STATUS_NO_AFTER_DEADLINE: 0,
+                            'optional': 0,
                         }
-                    per_student[sid][simplified_status] += 1
+                    per_student[sid][st] += 1
 
                 # Сортировка по фамилии, затем имени
                 students = summary.get("students", {})
@@ -175,7 +281,7 @@ async def cb_progress_router(call: CallbackQuery, config):
                     counters = per_student[sid]
                     student_name = f"{last} {first}"
                     lines.append(f"{italic('Студент')}: {escape_markdown_v2(student_name)}")
-                    lines.append(escape_markdown_v2(f"✅ - {counters.get(STATUS_HAS_ANSWER, 0)} | ❌ - {counters.get(STATUS_NO_ANSWER, 0)}"))
+                    lines.append(escape_markdown_v2(f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
                     lines.append("")  # Пустая строка для разделения студентов
 
                 text = "\n".join(lines)
@@ -226,85 +332,105 @@ async def cb_progress_router(call: CallbackQuery, config):
                 await call.message.edit_text("❌ Произошла ошибка при загрузке данных — попробуйте еще раз")
             return
 
-        # Установка тренинга убрана - больше не используется
-
-        # Выбор урока: gb:filter:lesson[:p:{page}]
-        if data.startswith("gb:filter:lesson"):
+        # Установка тренинга: gb:set:tr:{id}
+        if data.startswith("gb:set:tr:"):
             # Немедленно отвечаем на callback query
             await call.answer("Загрузка...")
 
-            parts = data.split(":")
-            page = 1
-            # Проверяем наличие параметра страницы: gb:filter:lesson:p:page
-            if len(parts) >= 4 and parts[2] == "p":
-                try:
-                    page = int(parts[3])
-                except Exception:
-                    page = 1
+            try:
+                training_id = int(data.split(":")[3])
+            except Exception:
+                await call.answer("Некорректный тренинг", show_alert=True)
+                return
 
             try:
                 if is_admin:
-                    await _render_lessons_list(call.message, session, mentor_id=None, page=page, edit=True)
+                    await _render_admin_list(call.message, session, training_id=training_id, lesson_id=None, page=1, edit=True)
                 else:
-                    await _render_lessons_list(call.message, session, mentor_id=mentor.id, page=page, edit=True)
+                    await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=None, page=1, edit=True)
+            except Exception as e:
+                logger.error(f"Ошибка при рендеринге списка: {e}")
+                await call.message.edit_text("❌ Произошла ошибка при загрузке данных — попробуйте еще раз")
+            return
+
+        # Выбор урока: gb:filter:lesson:tr:{id}[:p:{page}]
+        if data.startswith("gb:filter:lesson"):
+            parts = data.split(":")
+            # Проверяем формат: gb:filter:lesson или gb:filter:lesson:tr:ID[:p:page]
+            if len(parts) < 5 or parts[3] != "tr":
+                await call.answer("Необходимо сначала выбрать тренинг", show_alert=True)
+                return
+
+            # Немедленно отвечаем на callback query
+            await call.answer("Загрузка...")
+
+            training_id = None
+            page = 1
+            try:
+                training_id = int(parts[4])
+                # Проверяем наличие параметра страницы
+                if len(parts) >= 7 and parts[5] == "p":
+                    page = int(parts[6])
+            except Exception:
+                await call.answer("Некорректные данные", show_alert=True)
+                return
+
+            try:
+                await _render_lessons_list(call.message, session, training_id, page, edit=True)
             except Exception as e:
                 logger.error(f"Ошибка при выборе урока: {e}")
                 await call.answer("Произошла ошибка при загрузке уроков", show_alert=True)
             return
 
-        # Пагинация уроков: gb:page:lessons:p:{page}
+        # Пагинация уроков: gb:page:lessons:tr:{id}:p:{page}
         if data.startswith("gb:page:lessons"):
             # Немедленно отвечаем на callback query
             await call.answer("Загрузка...")
 
             parts = data.split(":")
-            # Проверяем формат: gb:page:lessons:p:page
-            if len(parts) < 5 or parts[2] != "lessons" or parts[3] != "p":
+            # Проверяем формат: gb:page:lessons:tr:ID:p:page
+            if len(parts) < 7 or parts[2] != "lessons" or parts[3] != "tr" or parts[5] != "p":
                 await call.answer("Некорректные данные", show_alert=True)
                 return
 
             try:
-                page = int(parts[4])
+                training_id = int(parts[4])
+                page = int(parts[6])
             except Exception:
                 await call.answer("Некорректные данные", show_alert=True)
                 return
 
             try:
-                if is_admin:
-                    await _render_lessons_list(call.message, session, mentor_id=None, page=page, edit=True)
-                else:
-                    await _render_lessons_list(call.message, session, mentor_id=mentor.id, page=page, edit=True)
+                await _render_lessons_list(call.message, session, training_id, page, edit=True)
             except Exception as e:
                 logger.error(f"Ошибка при пагинации уроков: {e}")
                 await call.answer("Произошла ошибка при загрузке уроков", show_alert=True)
             return
 
-        # Установка урока: gb:set:lesson:{lesson_id}[:tr:{training_id}] (training_id оставлен для совместимости)
+                # Установка урока: gb:set:lesson:{lesson_id}:tr:{training_id}
         if data.startswith("gb:set:lesson:"):
             # Немедленно отвечаем на callback query
             await call.answer("Загрузка...")
 
             parts = data.split(":")
-            # Проверяем формат: gb:set:lesson:LESSON_ID[:tr:TRAINING_ID]
-            # training_id оставлен для совместимости, но не используется
+            # Проверяем формат: gb:set:lesson:LESSON_ID:tr:TRAINING_ID
+            # parts = ["gb", "set", "lesson", "{lesson_id}", "tr", "{training_id}"]
+            if len(parts) < 6 or parts[4] != "tr":
+                await call.answer("Некорректные данные", show_alert=True)
+                return
+
             try:
                 lesson_id = int(parts[3])
-                training_id = None
-                # Поддерживаем старый формат с training_id для совместимости
-                if len(parts) >= 6 and parts[4] == "tr":
-                    try:
-                        training_id = int(parts[5])
-                    except Exception:
-                        pass
+                training_id = int(parts[5])
             except Exception:
                 await call.answer("Некорректные данные", show_alert=True)
                 return
 
             try:
                 if is_admin:
-                    await _render_admin_list(call.message, session, training_id=None, lesson_id=lesson_id, page=1, edit=True)
+                    await _render_admin_list(call.message, session, training_id=training_id, lesson_id=lesson_id, page=1, edit=True)
                 else:
-                    await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=None, lesson_id=lesson_id, page=1, edit=True)
+                    await _render_students_list(call.message, session, mentor_id=mentor.id, training_id=training_id, lesson_id=lesson_id, page=1, edit=True)
             except Exception as e:
                 logger.error(f"Ошибка при рендеринге списка: {e}")
                 await call.message.edit_text("❌ Произошла ошибка при загрузке данных. Попробуйте еще раз.")
@@ -352,85 +478,141 @@ from typing import Optional
 
 async def _build_header_with_legend(session, training_id: Optional[int], lesson_id: Optional[int], is_admin: bool = False) -> list[str]:
     """Формирует хедер с легендой для отображения статистики."""
-    # Определяем строку с уроком
+    # header with filters
+    if training_id is None:
+        tr_line = f"{bold('Тренинг')}: {escape_markdown_v2('по всем активным 🟡 и завершенным 🟢 тренингам.')}"
+    else:
+        from sqlalchemy import select, and_
+        from bot.services.database import Training, Lesson
+        from datetime import datetime
+        import pytz
+        now_utc = datetime.now(pytz.UTC)
+
+        # Находим тренинг по внутреннему ID с проверкой актуальности
+        tr = await session.execute(
+            select(Training).where(
+                and_(
+                    Training.id == training_id,
+                    Training.valid_from <= now_utc,
+                    Training.valid_to >= now_utc
+                )
+            )
+        )
+        t = tr.scalars().first()
+
+        if t:
+            # ВАЖНО: Lesson.training_id хранит GetCourse ID тренинга (String), а не внутренний Training.id
+            # Получаем все уроки тренинга для определения статуса
+            lessons_res = await session.execute(
+                select(Lesson).where(
+                    and_(
+                        Lesson.training_id == t.training_id,  # GetCourse ID тренинга
+                        Lesson.valid_from <= now_utc,
+                        Lesson.valid_to >= now_utc
+                    )
+                )
+            )
+            training_lessons = lessons_res.scalars().all()
+            state = get_training_state(training_lessons, t)
+            emoji = get_status_emoji(state)
+            title_text = t.title if t.title else str(training_id)
+            training_info = f"{emoji}{title_text}"
+            tr_line = f"{bold('Тренинг')}: {escape_markdown_v2(training_info)}"
+        else:
+            # Тренинг не найден или истек срок действия
+            tr_line = f"{bold('Тренинг')}: {escape_markdown_v2(str(training_id))}"
     if lesson_id is None:
-        lesson_line = escape_markdown_v2("по всем активным и завершенным урокам")
+        ls_line = f"{bold('Урок')}: {escape_markdown_v2('по всем активным 🟡 и завершенным 🟢 урокам.')}"
     else:
         from sqlalchemy import select
         from bot.services.database import Lesson
         lr = await session.execute(select(Lesson).where(Lesson.id == lesson_id))
         l = lr.scalars().first()
         if l:
+            state = get_lesson_state(l)
+            emoji = get_status_emoji(state)
             # ВАЖНО: В модели Lesson поле называется lesson_title, а не title
             title_text = l.lesson_title if l.lesson_title else str(lesson_id)
-            lesson_line = escape_markdown_v2(title_text)
+            lesson_info = f"{emoji}{title_text}"
+            ls_line = f"{bold('Урок')}: {escape_markdown_v2(lesson_info)}"
         else:
-            lesson_line = escape_markdown_v2(str(lesson_id))
+            ls_line = f"{bold('Урок')}: {escape_markdown_v2(str(lesson_id))}"
 
     title = "📈 " + bold("Статистика по наставникам") if is_admin else "📊 " + bold("Статистика ваших студентов")
 
     return [
         title,
         "",
-        lesson_line,
+        tr_line,
+        ls_line,
         "",
-        escape_markdown_v2("✅ Есть ответ | ❌ Нет ответа"),
+        escape_markdown_v2("🟢 Урок завершен. ✅ Ответ вовремя."),
+        escape_markdown_v2("🟢 Урок завершен. ⏰ Ответ с опозданием."),
+        escape_markdown_v2("🟡 Урок активный. ⌛ Ответа нет."),
+        escape_markdown_v2("🟢 Урок завершен. ❌ Ответа нет."),
         "",
     ]
 
 
-async def _render_lessons_list(message: types.Message, session, mentor_id: Optional[int] = None, page: int = 1, *, edit: bool = False):
-    """Рендерит список уроков с пагинацией. Получает все уроки всех тренингов наставника."""
+async def _render_lessons_list(message: types.Message, session, training_id: int, page: int, *, edit: bool = False):
+    """Рендерит список уроков с пагинацией."""
     from sqlalchemy import select, and_
-    from bot.services.database import Lesson, Training, Mapping, Mentor
-    from bot.services.gradebook_service import get_lesson_state, get_status_emoji, _fetch_trainings_for_mentor, _fetch_lessons_for_trainings
+    from bot.services.database import Lesson, Training
+    from bot.services.gradebook_service import get_lesson_state, get_status_emoji
     from datetime import datetime
     import pytz
     now_utc = datetime.now(pytz.UTC)
 
     try:
-        # Получаем тренинги наставника (или все тренинги для админа)
-        if mentor_id is None:
-            # Админ - получаем все тренинги
-            trainings_res = await session.execute(
-                select(Training).where(
-                    and_(
-                        Training.valid_from <= now_utc,
-                        Training.valid_to >= now_utc
-                    )
+        # ВАЖНО: training_id - это внутренний ID тренинга (Training.id)
+        # Lesson.training_id хранит GetCourse ID тренинга (String), поэтому нужно сначала найти тренинг
+        training_query = await session.execute(
+            select(Training).where(
+                and_(
+                    Training.id == training_id,
+                    Training.valid_from <= now_utc,
+                    Training.valid_to >= now_utc
                 )
             )
-            trainings = trainings_res.scalars().all()
-            training_getcourse_ids = {t.training_id for t in trainings}
-        else:
-            # Наставник - получаем тренинги через функцию
-            training_getcourse_ids = await _fetch_trainings_for_mentor(session, mentor_id)
+        )
+        training = training_query.scalars().first()
 
-        if not training_getcourse_ids:
-            await message.edit_text("Нет доступных уроков")
+        if not training:
+            await message.edit_text("Тренинг не найден или неактуален")
             return
 
-        # Получаем все уроки всех тренингов
-        lessons = await _fetch_lessons_for_trainings(session, training_getcourse_ids)
+        # Ищем уроки по GetCourse ID тренинга с проверкой актуальности
+        lessons_res = await session.execute(
+            select(Lesson).where(
+                and_(
+                    Lesson.training_id == training.training_id,  # GetCourse ID тренинга
+                    Lesson.valid_from <= now_utc,
+                    Lesson.valid_to >= now_utc
+                )
+            )
+        )
+        lessons = lessons_res.scalars().all()
         if not lessons:
-            await message.edit_text("Нет доступных уроков")
+            await message.edit_text("Нет уроков в данном тренинге")
             return
 
-        # Сортируем уроки по дате открытия (opening_date)
+        # Сортируем уроки: активный наверх, затем по номеру урока
         lesson_data = []
         for l in lessons:
-            state = get_lesson_state(l, now_utc)
+            state = get_lesson_state(l)
             state_emoji = get_status_emoji(state)
-            allowed = state != "not_started"  # Только активные и завершенные доступны
+            allowed = state != "not_started"
+            # Добавляем номер урока, если есть
+            lesson_num = f"№ {l.lesson_number}. " if l.lesson_number is not None else ""
             # ВАЖНО: В модели Lesson поле называется lesson_title, а не title
             lesson_title = l.lesson_title or f"Lesson {l.id}"
-            title = f"{state_emoji} {lesson_title}"
-            # Сортировка по opening_date (по возрастанию, None в конец)
-            opening_date = l.opening_date
-            sort_key = (opening_date is None, opening_date or datetime.max.replace(tzinfo=pytz.UTC))
+            title = f"{state_emoji} {lesson_num}{lesson_title}"
+            # Для сортировки: активный урок (priority=0), остальные по номеру урока
+            priority = 0 if state == "active" else 1
+            sort_key = (priority, l.lesson_number or 0)
             lesson_data.append((l.id, title, allowed, sort_key))
 
-        # Сортируем по opening_date
+        # Сортируем
         lesson_data.sort(key=lambda x: x[3])
 
         # Пагинация
@@ -444,8 +626,8 @@ async def _render_lessons_list(message: types.Message, session, mentor_id: Optio
         # Формируем опции для клавиатуры
         opts = [(lesson_id, title, allowed) for lesson_id, title, allowed, _ in page_lessons]
 
-        # Создаем клавиатуру с пагинацией (training_id оставлен для совместимости, но не используется)
-        kb = _kb_lesson_select_with_pagination(opts, None, page, total_pages)
+        # Создаем клавиатуру с пагинацией
+        kb = _kb_lesson_select_with_pagination(opts, training_id, page, total_pages)
 
         if edit:
             await message.edit_reply_markup(reply_markup=kb)
@@ -464,18 +646,18 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
     from bot.services.gradebook_service import build_mentor_overview
     summary = await build_mentor_overview(session, mentor_id=mentor_id, training_id=training_id, lesson_id=lesson_id, include_not_started=False)
 
-    # counters per student с преобразованием в упрощенный формат
+    # counters per student
     per_student = {}
     for it in summary.get("items", []):
         sid = it.get("student_id") if isinstance(it, dict) else it.student_id
         st = it.get("status") if isinstance(it, dict) else it.status
-        simplified_status = simplify_status(st)
-        if simplified_status is None:
-            continue  # Пропускаем STATUS_OPTIONAL и другие
         per_student.setdefault(sid, {
-            STATUS_HAS_ANSWER: 0,
-            STATUS_NO_ANSWER: 0,
-        })[simplified_status] += 1
+            STATUS_ON_TIME: 0,
+            STATUS_LATE: 0,
+            STATUS_NO_BEFORE_DEADLINE: 0,
+            STATUS_NO_AFTER_DEADLINE: 0,
+            'optional': 0,
+        })[st] += 1
 
     # order students
     students = summary.get("students", {})
@@ -513,13 +695,13 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
         counters = per_student[sid]
         student_name = f"{last} {first}"
         lines.append(f"{italic('Студент')}: {escape_markdown_v2(student_name)}")
-        lines.append(escape_markdown_v2(f"✅ - {counters.get(STATUS_HAS_ANSWER, 0)} | ❌ - {counters.get(STATUS_NO_ANSWER, 0)}"))
+        lines.append(escape_markdown_v2(f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}"))
         lines.append("")  # Пустая строка для разделения студентов
 
     text = "\n".join(lines)
     base = "gb:page:students"
     if training_id is not None:
-        base += f":tr:{training_id}"  # Оставлено для совместимости
+        base += f":tr:{training_id}"
     if lesson_id is not None:
         base += f":lesson:{lesson_id}"
     kb = kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base)
@@ -584,13 +766,13 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
         for it in summary.get("items", []):
             sid = it.get("student_id") if isinstance(it, dict) else it.student_id
             st = it.get("status") if isinstance(it, dict) else it.status
-            simplified_status = simplify_status(st)
-            if simplified_status is None:
-                continue  # Пропускаем STATUS_OPTIONAL и другие
             per_student.setdefault(sid, {
-                STATUS_HAS_ANSWER: 0,
-                STATUS_NO_ANSWER: 0,
-            })[simplified_status] += 1
+                STATUS_ON_TIME: 0,
+                STATUS_LATE: 0,
+                STATUS_NO_BEFORE_DEADLINE: 0,
+                STATUS_NO_AFTER_DEADLINE: 0,
+                'optional': 0,
+            })[st] += 1
         def s_key(sid):
             info = students.get(sid, {})
             return ((info.get("last_name") or "").lower(), (info.get("first_name") or "").lower(), sid)
@@ -603,7 +785,7 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
             counters = per_student[sid]
             student_name = f"{last} {first}"
             student_title = f"{italic('Студент')}: {escape_markdown_v2(student_name)}"
-            student_stats = escape_markdown_v2(f"✅ - {counters.get(STATUS_HAS_ANSWER, 0)} | ❌ - {counters.get(STATUS_NO_ANSWER, 0)}")
+            student_stats = escape_markdown_v2(f"✅ - {counters[STATUS_ON_TIME]} | ⏰ - {counters[STATUS_LATE]} | ⌛ - {counters[STATUS_NO_BEFORE_DEADLINE]} | ❌ - {counters[STATUS_NO_AFTER_DEADLINE]}")
             student_rows.append((student_title, student_stats))
         mentor_last = m.last_name or ""
         mentor_first = m.first_name or ""
@@ -661,7 +843,7 @@ async def _render_admin_list(message: types.Message, session, training_id: Optio
     text = "\n".join(lines)
     base = "gb:page:admin"
     if training_id is not None:
-        base += f":tr:{training_id}"  # Оставлено для совместимости
+        base += f":tr:{training_id}"
     if lesson_id is not None:
         base += f":lesson:{lesson_id}"
     kb = kb_filters_with_pagination(training_id, lesson_id, page, total_pages, base)
