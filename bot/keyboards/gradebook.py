@@ -5,10 +5,9 @@ from typing import Optional
 def kb_progress_filters():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
-        InlineKeyboardButton("Фильтр: тренинг", callback_data="gb:filter:training"),
-        InlineKeyboardButton("Фильтр: урок", callback_data="gb:filter:lesson"),
+        InlineKeyboardButton("Фильтр по урокам", callback_data="gb:filter:lesson"),
+        InlineKeyboardButton("Сбросить фильтр", callback_data="gb:back"),
     )
-    kb.add(InlineKeyboardButton("Сбросить фильтры", callback_data="gb:back"))
     return kb
 
 
@@ -50,16 +49,12 @@ def kb_filters_with_pagination(training_id: Optional[int], lesson_id: Optional[i
         InlineKeyboardButton(f"{page}/{total_pages}", callback_data="gb:nop"),
         InlineKeyboardButton("→", callback_data=f"{base_cb}:p:{next_page}"),
     )
-    # Filters row
-    lesson_cb = f"gb:filter:lesson:tr:{training_id}" if training_id else "gb:filter:lesson"
-    training_btn_text = "Сменить тренинг" if training_id else "Фильтр: тренинг"
-    lesson_btn_text = "Сменить урок" if lesson_id else "Фильтр: урок"
-    kb.add(
-        InlineKeyboardButton(training_btn_text, callback_data="gb:filter:training"),
-        InlineKeyboardButton(lesson_btn_text, callback_data=lesson_cb),
+    # Filters row под пагинацией - на одной строке
+    lesson_btn_text = "Сменить урок" if lesson_id else "Фильтр по урокам"
+    kb.row(
+        InlineKeyboardButton(lesson_btn_text, callback_data="gb:filter:lesson"),
+        InlineKeyboardButton("Сбросить фильтр", callback_data="gb:back"),
     )
-    # Сброс фильтров внизу
-    kb.add(InlineKeyboardButton("Сбросить фильтры", callback_data="gb:back"))
     return kb
 
 
@@ -88,21 +83,25 @@ def kb_lesson_select_with_status(options: list[tuple[int, str, bool]], training_
     return kb
 
 
-def _kb_lesson_select_with_pagination(options: list[tuple[int, str, bool]], training_id: int, page: int, total_pages: int):
-    """Создает клавиатуру для выбора урока с пагинацией."""
+def _kb_lesson_select_with_pagination(options: list[tuple[int, str, bool]], training_id: Optional[int], page: int, total_pages: int):
+    """Создает клавиатуру для выбора урока с пагинацией. training_id оставлен для совместимости."""
     kb = InlineKeyboardMarkup(row_width=1)
 
     # Добавляем кнопки уроков
     for lesson_id, title, allowed in options:
         title_short = title if len(title) <= 48 else title[:45] + "…"
-        cb = (f"gb:set:lesson:{lesson_id}:tr:{training_id}" if allowed else "gb:block:not_started")
+        # Поддерживаем старый формат с training_id для совместимости
+        if training_id is not None:
+            cb = (f"gb:set:lesson:{lesson_id}:tr:{training_id}" if allowed else "gb:block:not_started")
+        else:
+            cb = (f"gb:set:lesson:{lesson_id}" if allowed else "gb:block:not_started")
         kb.add(InlineKeyboardButton(title_short, callback_data=cb))
 
     # Добавляем пагинацию, если есть больше одной страницы
     if total_pages > 1:
         prev_page = max(1, page - 1)
         next_page = min(total_pages, page + 1)
-        base_cb = f"gb:page:lessons:tr:{training_id}"
+        base_cb = "gb:page:lessons"
 
         kb.row(
             InlineKeyboardButton("←", callback_data=f"{base_cb}:p:{prev_page}"),
