@@ -41,6 +41,29 @@ STATUS_OPTIONAL = "optional"  # необязательный урок без д�
 
 NOT_ON_TIME_SET = {STATUS_LATE, STATUS_NO_BEFORE_DEADLINE, STATUS_NO_AFTER_DEADLINE}
 
+# Упрощенные статусы для отображения
+STATUS_HAS_ANSWER = "has_answer"  # Есть ответ (объединяет STATUS_ON_TIME + STATUS_LATE)
+STATUS_NO_ANSWER = "no_answer"    # Нет ответа (объединяет STATUS_NO_BEFORE_DEADLINE + STATUS_NO_AFTER_DEADLINE)
+
+
+def simplify_status(status: str) -> Optional[str]:
+    """
+    Преобразует детальный статус в упрощенный формат для отображения.
+
+    Args:
+        status: Один из детальных статусов (STATUS_*)
+
+    Returns:
+        STATUS_HAS_ANSWER, STATUS_NO_ANSWER или None (для STATUS_OPTIONAL)
+    """
+    if status in {STATUS_ON_TIME, STATUS_LATE}:
+        return STATUS_HAS_ANSWER
+    elif status in {STATUS_NO_BEFORE_DEADLINE, STATUS_NO_AFTER_DEADLINE}:
+        return STATUS_NO_ANSWER
+    else:
+        # STATUS_OPTIONAL и другие - не показываем в статистике
+        return None
+
 
 @dataclass
 class LessonStatus:
@@ -521,37 +544,9 @@ async def build_mentor_overview(
         # logger.debug(f"[DEBUG] build_mentor_overview: нет студентов для ментора {mentor_id}")
         return {"total_students": 0, "counts": {}, "by_lesson": {}, "by_student": {}, "items": []}
 
-    # Ограничиваем тренинги по фильтру, иначе берём все закрепления
+    # Получаем все тренинги наставника (training_id игнорируется для совместимости)
     mentor_training_getcourse_ids = await _fetch_trainings_for_mentor(session, mentor_id)
-
-    # Если передан training_id (внутренний ID), нужно найти соответствующий GetCourse ID
-    training_getcourse_id = None
-    if training_id is not None:
-        # Находим тренинг по внутреннему ID
-        training_query = select(Training).where(
-            and_(
-                Training.id == training_id,
-                Training.valid_from <= now_utc,
-                Training.valid_to >= now_utc
-            )
-        )
-        training_result = await session.execute(training_query)
-        training = training_result.scalar_one_or_none()
-
-        if training:
-            training_getcourse_id = training.training_id  # GetCourse ID
-            # Проверяем, что этот тренинг принадлежит ментору
-            if training_getcourse_id not in mentor_training_getcourse_ids:
-                # убрать\закомментировать логирование после тестирования
-                # logger.debug(f"[DEBUG] build_mentor_overview: тренинг {training_id} (GetCourse ID: {training_getcourse_id}) не принадлежит ментору {mentor_id}")
-                return {"total_students": len(students), "counts": {}, "by_lesson": {}, "by_student": {}, "items": []}
-            training_ids = {training_getcourse_id}
-        else:
-            # убрать\закомментировать логирование после тестирования
-            # logger.debug(f"[DEBUG] build_mentor_overview: тренинг с внутренним ID {training_id} не найден или неактуален")
-            return {"total_students": len(students), "counts": {}, "by_lesson": {}, "by_student": {}, "items": []}
-    else:
-        training_ids = mentor_training_getcourse_ids
+    training_ids = mentor_training_getcourse_ids
 
     # убрать\закомментировать логирование после тестирования
     # logger.debug(f"[DEBUG] build_mentor_overview: GetCourse ID тренингов для фильтрации: {training_ids}")
@@ -635,24 +630,8 @@ async def build_mentor_overview(
         by_lesson[ls.lesson_id][ls.status] += 1
         by_student[ls.student_id][ls.status] += 1
 
-    # Определяем состояния тренинга/урока для заголовков
-    training_state = None
+    # Определяем состояние урока для заголовков
     lesson_state = None
-    if training_id is not None:
-        # Используем GetCourse ID тренинга для поиска уроков
-        training_lessons = [l for l in lessons if l.training_id == training_getcourse_id]
-        # Получаем объект training для корректного определения состояния
-        training_query = select(Training).where(
-            and_(
-                Training.id == training_id,
-                Training.valid_from <= now_utc,
-                Training.valid_to >= now_utc
-            )
-        )
-        training_result = await session.execute(training_query)
-        training = training_result.scalar_one_or_none()
-        # ВАЖНО: Используем UTC datetime для корректного определения состояния
-        training_state = get_training_state(training_lessons, training, now_utc)
     if lesson_id is not None and lessons:
         lesson_obj = next((l for l in lessons if l.id == lesson_id), None)
         if lesson_obj:
@@ -670,10 +649,9 @@ async def build_mentor_overview(
         "items": [ls.__dict__ for ls in items],
         "students": {sid: {"first_name": students[sid].first_name, "last_name": students[sid].last_name} for sid in students},
         "applied_filters": {
-            "training_id": training_id,
+            "training_id": training_id,  # Оставляем для совместимости, но не используем
             "lesson_id": lesson_id,
             "status": status_filter,
-            "training_state": training_state,
             "lesson_state": lesson_state,
         },
     }
