@@ -236,9 +236,9 @@ async def cb_progress_router(call: CallbackQuery, config):
             parts = data.split(":")
             page = 1
             # Проверяем наличие параметра страницы: gb:filter:lesson:p:page
-            if len(parts) >= 4 and parts[2] == "p":
+            if len(parts) >= 5 and parts[3] == "p":
                 try:
-                    page = int(parts[3])
+                    page = int(parts[4])
                 except Exception:
                     page = 1
 
