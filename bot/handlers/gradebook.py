@@ -133,23 +133,28 @@ async def cb_progress_router(call: CallbackQuery, config):
             try:
                 summary = await build_mentor_overview(session, mentor_id=mentor.id, training_id=training_id, lesson_id=lesson_id)
 
-                # Счётчики по студентам: подсчёт статусов по items с преобразованием в упрощенный формат
-                per_student = {}
+                students = summary.get("students", {})
+
+                # Инициализируем счетчики для всех студентов нулевыми значениями
+                per_student = {
+                    sid: {
+                        STATUS_HAS_ANSWER: 0,
+                        STATUS_NO_ANSWER: 0,
+                    }
+                    for sid in students.keys()
+                }
+
+                # Обновляем счетчики из items (активные/завершенные уроки)
                 for it in summary.get("items", []):
                     sid = it.get("student_id") if isinstance(it, dict) else it.student_id
                     st = it.get("status") if isinstance(it, dict) else it.status
                     simplified_status = simplify_status(st)
                     if simplified_status is None:
                         continue  # Пропускаем STATUS_OPTIONAL и другие
-                    if sid not in per_student:
-                        per_student[sid] = {
-                            STATUS_HAS_ANSWER: 0,
-                            STATUS_NO_ANSWER: 0,
-                        }
-                    per_student[sid][simplified_status] += 1
+                    if sid in per_student:  # Проверяем, что студент еще в списке
+                        per_student[sid][simplified_status] += 1
 
                 # Сортировка по фамилии, затем имени
-                students = summary.get("students", {})
                 def sort_key(sid):
                     info = students.get(sid, {})
                     last = (info.get("last_name") or "").lower()
@@ -464,18 +469,26 @@ async def _render_students_list(message: types.Message, session, mentor_id: int,
     from bot.services.gradebook_service import build_mentor_overview
     summary = await build_mentor_overview(session, mentor_id=mentor_id, training_id=training_id, lesson_id=lesson_id, include_not_started=False)
 
-    # counters per student с преобразованием в упрощенный формат
-    per_student = {}
+    students = summary.get("students", {})
+
+    # Инициализируем счетчики для всех студентов нулевыми значениями
+    per_student = {
+        sid: {
+            STATUS_HAS_ANSWER: 0,
+            STATUS_NO_ANSWER: 0,
+        }
+        for sid in students.keys()
+    }
+
+    # Обновляем счетчики из items (активные/завершенные уроки)
     for it in summary.get("items", []):
         sid = it.get("student_id") if isinstance(it, dict) else it.student_id
         st = it.get("status") if isinstance(it, dict) else it.status
         simplified_status = simplify_status(st)
         if simplified_status is None:
             continue  # Пропускаем STATUS_OPTIONAL и другие
-        per_student.setdefault(sid, {
-            STATUS_HAS_ANSWER: 0,
-            STATUS_NO_ANSWER: 0,
-        })[simplified_status] += 1
+        if sid in per_student:  # Проверяем, что студент еще в списке
+            per_student[sid][simplified_status] += 1
 
     # order students
     students = summary.get("students", {})
